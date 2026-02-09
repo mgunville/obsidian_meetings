@@ -9,6 +9,11 @@ def _event_key(event: dict[str, object]) -> tuple[datetime, str]:
     return (start, title)
 
 
+def _is_canceled(event: dict[str, object]) -> bool:
+    title = str(event.get("title", "")).strip().lower()
+    return title.startswith("canceled:")
+
+
 def select_now_or_next(
     *, events: list[dict[str, object]], now: datetime, window_minutes: int
 ) -> dict[str, object] | None:
@@ -17,6 +22,8 @@ def select_now_or_next(
     window_end = now + timedelta(minutes=window_minutes)
 
     for event in events:
+        if _is_canceled(event):
+            continue
         start = datetime.fromisoformat(str(event["start"]))
         end = datetime.fromisoformat(str(event["end"]))
         if start <= now < end:

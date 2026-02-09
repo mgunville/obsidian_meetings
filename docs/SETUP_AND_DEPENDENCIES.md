@@ -1,50 +1,63 @@
 # Setup and Dependencies
 
-## 1) Repository Setup
-- Clone repo.
-- Create `.env` from `.env.example`.
-  - default:
-    - `cp .env.example .env`
+## 1) One-Command Install (new machine)
+From repo root:
+- `bash install.sh`
 
-## 2) Python Environment
-- Required: Python 3.11+
-- Create venv:
-  - `python3.11 -m venv .venv`
-  - `source .venv/bin/activate`
-- Install:
-  - `pip install -e .[dev]`
+This does:
+- creates `.venv`
+- installs `requirements.txt` (`-e .[dev]`)
+- creates `.env` from `.env.example` if missing
+- marks `scripts/eventkit_fetch.py` executable
 
-## 3) External Apps and Tools
-Assumed installed:
-- Keyboard Maestro
-- Audio Hijack
+## 2) Required Environment Variables (`.env`)
+Minimum required:
+- `VAULT_PATH=~/Notes/notes-vault/`
+- `RECORDINGS_PATH=~/Notes/recordings`
 
-Required:
-- `ffmpeg` via Homebrew
+Optional (already documented in `.env.example`):
+- `DEFAULT_MEETINGS_FOLDER=meetings`
+- `MEETINGCTL_STATE_FILE=~/.local/state/meetingctl/current.json`
+- `MEETINGCTL_PROCESS_QUEUE_FILE=~/.local/state/meetingctl/process_queue.jsonl`
+- `MEETINGCTL_PROCESSED_JOBS_FILE=~/.local/state/meetingctl/processed_jobs.jsonl`
+- `ANTHROPIC_API_KEY=...`
 
-Planned optional runtime dependencies:
-- whisper.cpp or faster-whisper
-- LLM provider SDK (only for summarization stories)
-- Todoist API token (only for optional tasks stories)
+## 3) Integration Requirements
+### Audio Hijack
+Create sessions with exact names:
+- `Teams+Mic`
+- `Zoom+Mic`
+- `Browser+Mic`
+- `System+Mic`
+
+Each session should record to WAV and include the required audio sources.
+`process-queue` now supports WAV discovery fallback:
+- preferred: `<meeting_id>.wav`
+- fallback: newest `*.wav` in `RECORDINGS_PATH`
+
+### Calendar Backend
+Preferred:
+- EventKit helper: `scripts/eventkit_fetch.py`
+
+Fallback:
+- JXA script: `scripts/calendar_events.jxa`
 
 ## 4) macOS Permissions
-Grant access for:
+Grant access for the runtime used to execute `meetingctl`:
 - Calendar
-- Automation (KM controlling Audio Hijack)
+- Automation (for app control)
 - Microphone/system audio capture
 
-Trigger Calendar permission request for the current runtime:
+Permission probe:
 - `source .venv/bin/activate`
 - `python scripts/eventkit_fetch.py --request-access`
 
-## 5) Calendar Integration Runtime
-- Preferred path: EventKit helper script `scripts/eventkit_fetch.py`.
-  - Auto-used when present, or force with `MEETINGCTL_EVENTKIT_HELPER=/abs/path/to/eventkit_fetch.py`.
-- Fallback path: JXA through `osascript`, optionally with `MEETINGCTL_JXA_SCRIPT=/abs/path/to/calendar_events.jxa`.
-- For incremental workflow checks without Audio Hijack side effects:
-  - `MEETINGCTL_RECORDING_DRY_RUN=1`
-
-## 6) Verification
-- `pytest`
-- `meetingctl doctor` (once implemented)
+## 5) Validation Checklist
+1. `source .venv/bin/activate && pytest`
+2. `source .venv/bin/activate && set -a && source .env && set +a && PYTHONPATH=src python -m meetingctl.cli doctor --json`
+3. Local smoke:
 - `bash scripts/smoke-test.sh`
+4. Real-mode incremental:
+- `MODE=real bash scripts/run-incremental-workflow.sh`
+5. Real-machine smoke:
+- `SMOKE_REAL_MACHINE=1 bash scripts/smoke-test.sh`

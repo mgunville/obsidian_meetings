@@ -124,12 +124,38 @@ def _require_payload_str(payload: dict[str, object], key: str) -> str:
     return value
 
 
+def _resolve_wav_path(
+    *,
+    payload: dict[str, object],
+    recordings_path: Path,
+    meeting_id: str,
+) -> Path:
+    explicit = payload.get("wav_path")
+    if isinstance(explicit, str) and explicit.strip():
+        candidate = Path(explicit).expanduser().resolve()
+        if candidate.exists():
+            return candidate
+
+    expected = recordings_path / f"{meeting_id}.wav"
+    if expected.exists():
+        return expected
+
+    latest = sorted(recordings_path.glob("*.wav"), key=lambda p: p.stat().st_mtime, reverse=True)
+    if latest:
+        return latest[0]
+    return expected
+
+
 def _process_context_from_payload(payload: dict[str, object]) -> ProcessContext:
     cfg = load_config()
     meeting_id = _require_payload_str(payload, "meeting_id")
     note_path = Path(_require_payload_str(payload, "note_path")).expanduser().resolve()
     transcript_path = cfg.recordings_path / f"{meeting_id}.txt"
-    wav_path = cfg.recordings_path / f"{meeting_id}.wav"
+    wav_path = _resolve_wav_path(
+        payload=payload,
+        recordings_path=cfg.recordings_path,
+        meeting_id=meeting_id,
+    )
     mp3_path = cfg.recordings_path / f"{meeting_id}.mp3"
     return ProcessContext(
         meeting_id=meeting_id,

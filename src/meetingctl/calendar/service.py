@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+import re
 
 from meetingctl.calendar.backends import BackendUnavailableError, EventKitBackend, JXABackend
 from meetingctl.calendar.selector import select_now_or_next
@@ -23,11 +24,24 @@ class CalendarResolutionError(RuntimeError):
 
 def _infer_join_url(event: dict[str, object]) -> str:
     candidates = [str(event.get("url", "")), str(event.get("location", "")), str(event.get("notes", ""))]
+    urls: list[str] = []
     for candidate in candidates:
-        if "http" in candidate:
-            start = candidate.find("http")
-            return candidate[start:].split()[0]
-    return ""
+        urls.extend(re.findall(r"https?://[^\s<>\"']+", candidate))
+
+    if not urls:
+        return ""
+
+    preferred_domains = (
+        "teams.microsoft.com",
+        "zoom.us",
+        "meet.google.com",
+        "webex.com",
+    )
+    for domain in preferred_domains:
+        for url in urls:
+            if domain in url.lower():
+                return url
+    return urls[0]
 
 
 def _infer_platform(join_url: str) -> str:

@@ -18,15 +18,17 @@ Install separately:
 - Optional transcription engine binaries/models
 
 ## Quick Start (Developers)
-1. Create and activate a venv:
-   - `python3.11 -m venv .venv`
+1. Bootstrap environment:
+   - `bash install.sh`
+2. Activate environment:
    - `source .venv/bin/activate`
-2. Install dev dependencies:
-   - `pip install -e .[dev]`
 3. Run tests:
    - `pytest`
 4. Run lint:
    - `ruff check .`
+5. Run doctor:
+   - `set -a; source .env; set +a`
+   - `PYTHONPATH=src python -m meetingctl.cli doctor --json`
 
 ## Working Agreements
 - TDD: write/adjust tests first for each story.

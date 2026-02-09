@@ -10,6 +10,18 @@ class CommandRunner(Protocol):
         ...
 
 
+def _jxa_session_script(*, action: str, session_name: str) -> str:
+    escaped = session_name.replace("\\", "\\\\").replace('"', '\\"')
+    return f"""
+const app = Application("Audio Hijack");
+const session = app.sessionWithName("{escaped}");
+if (!session.exists()) {{
+  throw new Error("Session not found: {escaped}");
+}}
+session.{action}();
+""".strip()
+
+
 class AudioHijackRecorder:
     def __init__(self, runner: CommandRunner | None = None) -> None:
         self._runner = runner or subprocess.run
@@ -20,8 +32,10 @@ class AudioHijackRecorder:
         self._runner(
             [
                 "osascript",
+                "-l",
+                "JavaScript",
                 "-e",
-                f'tell application "Audio Hijack" to start (first session whose name is "{session_name}")',
+                _jxa_session_script(action="start", session_name=session_name),
             ],
             check=True,
         )
@@ -32,8 +46,10 @@ class AudioHijackRecorder:
         self._runner(
             [
                 "osascript",
+                "-l",
+                "JavaScript",
                 "-e",
-                f'tell application "Audio Hijack" to stop (first session whose name is "{session_name}")',
+                _jxa_session_script(action="stop", session_name=session_name),
             ],
             check=True,
         )

@@ -162,3 +162,61 @@ def test_process_queue_cli_supports_transcribe_dry_run(monkeypatch, tmp_path: Pa
     assert (recordings / "m-3.txt").exists()
     assert (recordings / "m-3.mp3").exists()
     assert not wav.exists()
+
+
+def test_process_queue_cli_falls_back_to_latest_wav_when_meeting_named_wav_missing(
+    monkeypatch, tmp_path: Path, capsys
+) -> None:
+    queue_file = tmp_path / "process_queue.jsonl"
+    processed_file = tmp_path / "processed.jsonl"
+    recordings = tmp_path / "recordings"
+    recordings.mkdir(parents=True, exist_ok=True)
+    note = tmp_path / "meeting.md"
+    note.write_text(
+        "\n".join(
+            [
+                "# Note",
+                "<!-- MINUTES_START -->",
+                "> _Pending_",
+                "<!-- MINUTES_END -->",
+                "<!-- DECISIONS_START -->",
+                "> _Pending_",
+                "<!-- DECISIONS_END -->",
+                "<!-- ACTION_ITEMS_START -->",
+                "> _Pending_",
+                "<!-- ACTION_ITEMS_END -->",
+                "<!-- TRANSCRIPT_START -->",
+                "> _Pending_",
+                "<!-- TRANSCRIPT_END -->",
+            ]
+        )
+        + "\n"
+    )
+    fallback_wav = recordings / "capture-20260209-1700.wav"
+    fallback_wav.write_text("wav")
+    _write_queue(queue_file, [{"meeting_id": "m-4", "note_path": str(note)}])
+    monkeypatch.setenv("MEETINGCTL_PROCESS_QUEUE_FILE", str(queue_file))
+    monkeypatch.setenv("MEETINGCTL_PROCESSED_JOBS_FILE", str(processed_file))
+    monkeypatch.setenv("VAULT_PATH", str(tmp_path / "vault"))
+    monkeypatch.setenv("RECORDINGS_PATH", str(recordings))
+    monkeypatch.setenv(
+        "MEETINGCTL_PROCESSING_SUMMARY_JSON",
+        '{"minutes":"Summary","decisions":[],"action_items":[]}',
+    )
+    monkeypatch.setenv("MEETINGCTL_PROCESSING_CONVERT_DRY_RUN", "1")
+
+    class FakeRunner:
+        def transcribe(self, *, wav_path: Path, transcript_path: Path) -> Path:
+            assert wav_path.name == "capture-20260209-1700.wav"
+            assert wav_path.exists()
+            transcript_path.write_text("transcript")
+            return transcript_path
+
+    monkeypatch.setattr("meetingctl.cli.WhisperTranscriptionRunner", lambda: FakeRunner())
+    monkeypatch.setattr("sys.argv", ["meetingctl", "process-queue", "--max-jobs", "1", "--json"])
+
+    assert cli.main() == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload == {"processed_jobs": 1, "failed_jobs": 0, "remaining_jobs": 0}
+    assert not fallback_wav.exists()
+    assert (recordings / "m-4.mp3").exists()

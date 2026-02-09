@@ -23,15 +23,16 @@ export PYTHONPATH="$PROJECT_ROOT/src"
 export MEETINGCTL_STATE_FILE="$STATE_DIR/current.json"
 export MEETINGCTL_PROCESS_QUEUE_FILE="$QUEUE_FILE"
 export MEETINGCTL_PROCESSED_JOBS_FILE="$PROCESSED_FILE"
-export MEETINGCTL_NOW_ISO="$NOW_ISO"
 
 if [ "$MODE" = "local" ]; then
+  export MEETINGCTL_NOW_ISO="$NOW_ISO"
   export MEETINGCTL_RECORDING_DRY_RUN=1
   export MEETINGCTL_EVENTKIT_EVENTS_JSON='[{"title":"Incremental Event","start":"2026-02-08T10:00:00+00:00","end":"2026-02-08T10:30:00+00:00","calendar_name":"Work","location":"https://teams.microsoft.com/l/meetup-join/abc"}]'
   export MEETINGCTL_PROCESSING_SUMMARY_JSON='{"minutes":"Dry-run summary","decisions":["Decision"],"action_items":["Action"]}'
   export MEETINGCTL_PROCESSING_CONVERT_DRY_RUN=1
   echo "[info] running in local mode (dry-run recorder + seeded event payload)"
 else
+  unset MEETINGCTL_NOW_ISO || true
   echo "[info] running in real mode (real recorder/calendar integrations)"
 fi
 

@@ -51,6 +51,37 @@ def test_resolution_error_includes_backend_and_doctor_hint() -> None:
     assert "meetingctl doctor" in str(excinfo.value)
 
 
+def test_resolution_prefers_provider_join_link_over_aka_ms_help_link() -> None:
+    now = datetime(2026, 2, 9, 16, 59, tzinfo=UTC)
+    eventkit = EventKitBackend(
+        loader=lambda: [
+            {
+                "title": "Epiq | AHEAD: Tanium Working Session",
+                "start": "2026-02-09T17:00:00+00:00",
+                "end": "2026-02-09T18:30:00+00:00",
+                "calendar_name": "Work",
+                "location": "Microsoft Teams Meeting",
+                "notes": (
+                    "Microsoft Teams Need help?<https://aka.ms/JoinTeamsMeeting?omkt=en-US>\n"
+                    "Join the meeting now<https://teams.microsoft.com/l/meetup-join/abc>"
+                ),
+                "url": "",
+            }
+        ]
+    )
+    jxa = JXABackend(loader=lambda: [])
+
+    payload = resolve_now_or_next_event(
+        now=now,
+        window_minutes=10,
+        eventkit=eventkit,
+        jxa=jxa,
+    )
+
+    assert payload["join_url"] == "https://teams.microsoft.com/l/meetup-join/abc"
+    assert payload["platform"] == "teams"
+
+
 @patch("meetingctl.calendar.backends.EKEventStore")
 def test_eventkit_backend_fetches_real_calendar_events(
     mock_ekstore_class: MagicMock, monkeypatch

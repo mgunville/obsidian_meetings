@@ -53,3 +53,22 @@ def test_selector_returns_none_when_no_match() -> None:
         }
     ]
     assert select_now_or_next(events=events, now=now, window_minutes=5) is None
+
+
+def test_selector_ignores_canceled_events() -> None:
+    now = datetime(2026, 2, 9, 16, 59, tzinfo=UTC)
+    events = [
+        {
+            "title": "Canceled: Team Sync",
+            "start": "2026-02-09T17:00:00+00:00",
+            "end": "2026-02-09T18:00:00+00:00",
+        },
+        {
+            "title": "Active Team Sync",
+            "start": "2026-02-09T17:00:00+00:00",
+            "end": "2026-02-09T18:00:00+00:00",
+        },
+    ]
+    selected = select_now_or_next(events=events, now=now, window_minutes=5)
+    assert selected is not None
+    assert selected["title"] == "Active Team Sync"
