@@ -1,0 +1,243 @@
+{
+  "total_changed_files": 154,
+  "ignored_files": [
+    ".gitignore",
+    "docs/DEVELOPER_ASSIGNMENT_PROMPTS.md",
+    "docs/EPICS_AND_STORIES.md",
+    "docs/EXECUTION_PLAN.md",
+    "docs/HOTKEYS.md",
+    "docs/INTEGRATION_SMOKE_REPORT_2026-02-08.md",
+    "docs/SETUP_AND_DEPENDENCIES.md",
+    "docs/SKILLS_ROLLOUT.md",
+    "docs/SMOKE_AND_SLICING_REQUIREMENTS.md",
+    "docs/STORY_COMMIT_SLICING_REPORT.json",
+    "docs/TDD_AND_DOD.md",
+    "docs/TEAM_ASSIGNMENT_PLAN.md",
+    "docs/UI-QUICKSTART.md",
+    "docs/WORKING_CHARTER.md",
+    "meetings/2026-02-08 1000 - Incremental Event - m-a0df1095dc.md",
+    "obsidian_spec.md",
+    "scripts/calendar_events.jxa",
+    "scripts/eventkit_fetch.py",
+    "scripts/run-incremental-workflow.sh",
+    "scripts/setup.sh",
+    "scripts/smoke-test.sh",
+    "scripts/story_commit_slicing_report.py",
+    "section18_clean.md",
+    "setup-dev-environment.sh",
+    "skills/calendar-backend-check/SKILL.md",
+    "skills/contract-freezer/SKILL.md",
+    "skills/integration-auditor/SKILL.md",
+    "skills/km-ux-packager/SKILL.md",
+    "skills/release-readiness/SKILL.md",
+    "skills/safe-note-patching/SKILL.md",
+    "skills/story-executor/SKILL.md",
+    "skills/tdd-loop/SKILL.md",
+    "src/meetingctl.egg-info/PKG-INFO",
+    "src/meetingctl.egg-info/SOURCES.txt",
+    "src/meetingctl.egg-info/dependency_links.txt",
+    "src/meetingctl.egg-info/entry_points.txt",
+    "src/meetingctl.egg-info/requires.txt",
+    "src/meetingctl.egg-info/top_level.txt",
+    "src/meetingctl/__init__.py",
+    "src/meetingctl/__pycache__/__init__.cpython-311.pyc",
+    "src/meetingctl/__pycache__/audio.cpython-311.pyc",
+    "src/meetingctl/__pycache__/cli.cpython-311.pyc",
+    "src/meetingctl/__pycache__/commands.cpython-311.pyc",
+    "src/meetingctl/__pycache__/config.cpython-311.pyc",
+    "src/meetingctl/__pycache__/doctor.cpython-311.pyc",
+    "src/meetingctl/__pycache__/process.cpython-311.pyc",
+    "src/meetingctl/__pycache__/queue_worker.cpython-311.pyc",
+    "src/meetingctl/__pycache__/recording.cpython-311.pyc",
+    "src/meetingctl/__pycache__/runtime_state.cpython-311.pyc",
+    "src/meetingctl/__pycache__/summary_client.cpython-311.pyc",
+    "src/meetingctl/__pycache__/summary_parser.cpython-311.pyc",
+    "src/meetingctl/__pycache__/transcription.cpython-311.pyc",
+    "src/meetingctl/calendar/__init__.py",
+    "src/meetingctl/calendar/__pycache__/__init__.cpython-311.pyc",
+    "src/meetingctl/calendar/__pycache__/backends.cpython-311.pyc",
+    "src/meetingctl/calendar/__pycache__/selector.cpython-311.pyc",
+    "src/meetingctl/calendar/__pycache__/service.cpython-311.pyc",
+    "src/meetingctl/note/__init__.py",
+    "src/meetingctl/note/__pycache__/__init__.cpython-311.pyc",
+    "src/meetingctl/note/__pycache__/identity.cpython-311.pyc",
+    "src/meetingctl/note/__pycache__/patcher.cpython-311.pyc",
+    "src/meetingctl/note/__pycache__/service.cpython-311.pyc",
+    "src/meetingctl/note/__pycache__/template.cpython-311.pyc",
+    "tests/__pycache__/test_audio_conversion.cpython-311-pytest-9.0.2.pyc",
+    "tests/__pycache__/test_calendar_resolution.cpython-311-pytest-9.0.2.pyc",
+    "tests/__pycache__/test_cli_contracts.cpython-311-pytest-9.0.2.pyc",
+    "tests/__pycache__/test_cli_json_commands.cpython-311-pytest-9.0.2.pyc",
+    "tests/__pycache__/test_cli_registry.cpython-311-pytest-9.0.2.pyc",
+    "tests/__pycache__/test_cli_smoke.cpython-311-pytest-9.0.2.pyc",
+    "tests/__pycache__/test_config.cpython-311-pytest-9.0.2.pyc",
+    "tests/__pycache__/test_doctor_command.cpython-311-pytest-9.0.2.pyc",
+    "tests/__pycache__/test_event_command_contract.cpython-311-pytest-9.0.2.pyc",
+    "tests/__pycache__/test_event_selector.cpython-311-pytest-9.0.2.pyc",
+    "tests/__pycache__/test_km_macro_package.cpython-311-pytest-9.0.2.pyc",
+    "tests/__pycache__/test_note_identity.cpython-311-pytest-9.0.2.pyc",
+    "tests/__pycache__/test_note_patcher.cpython-311-pytest-9.0.2.pyc",
+    "tests/__pycache__/test_note_service.cpython-311-pytest-9.0.2.pyc",
+    "tests/__pycache__/test_note_template.cpython-311-pytest-9.0.2.pyc",
+    "tests/__pycache__/test_patch_note_cli.cpython-311-pytest-9.0.2.pyc",
+    "tests/__pycache__/test_patch_note_dry_run.cpython-311-pytest-9.0.2.pyc",
+    "tests/__pycache__/test_process_orchestrator.cpython-311-pytest-9.0.2.pyc",
+    "tests/__pycache__/test_process_queue_cli.cpython-311-pytest-9.0.2.pyc",
+    "tests/__pycache__/test_queue_worker.cpython-311-pytest-9.0.2.pyc",
+    "tests/__pycache__/test_runtime_state.cpython-311-pytest-9.0.2.pyc",
+    "tests/__pycache__/test_start_stop_contract.cpython-311-pytest-9.0.2.pyc",
+    "tests/__pycache__/test_start_stop_flow.cpython-311-pytest-9.0.2.pyc",
+    "tests/__pycache__/test_start_wrapper.cpython-311-pytest-9.0.2.pyc",
+    "tests/__pycache__/test_status_contract.cpython-311-pytest-9.0.2.pyc",
+    "tests/__pycache__/test_story_commit_slicing_report.cpython-311-pytest-9.0.2.pyc",
+    "tests/__pycache__/test_summary_client.cpython-311-pytest-9.0.2.pyc",
+    "tests/__pycache__/test_summary_parser.cpython-311-pytest-9.0.2.pyc",
+    "tests/__pycache__/test_transcription_runner.cpython-311-pytest-9.0.2.pyc",
+    "tests/test_story_commit_slicing_report.py"
+  ],
+  "story_assignments": {
+    "E1-S1": [
+      "README.md",
+      "pyproject.toml"
+    ],
+    "E6-S1": [
+      "km/Meeting-Automation-Macros.kmmacros",
+      "tests/test_km_macro_package.py"
+    ],
+    "E6-S2": [
+      "km/Meeting-Automation-Macros.kmmacros",
+      "tests/test_km_macro_package.py"
+    ],
+    "E6-S3": [
+      "km/Meeting-Automation-Macros.kmmacros",
+      "tests/test_km_macro_package.py"
+    ],
+    "E6-S4": [
+      "km/Meeting-Automation-Macros.kmmacros",
+      "tests/test_km_macro_package.py"
+    ],
+    "E6-S5": [
+      "km/Meeting-Automation-Macros.kmmacros",
+      "tests/test_km_macro_package.py"
+    ],
+    "E5-S4": [
+      "src/meetingctl/audio.py",
+      "tests/test_audio_conversion.py"
+    ],
+    "E2-S2": [
+      "src/meetingctl/calendar/backends.py",
+      "tests/test_calendar_resolution.py"
+    ],
+    "E2-S1": [
+      "src/meetingctl/calendar/selector.py",
+      "tests/test_event_selector.py"
+    ],
+    "E2-S3": [
+      "src/meetingctl/calendar/service.py",
+      "tests/test_calendar_resolution.py"
+    ],
+    "E1-S2": [
+      "src/meetingctl/cli.py",
+      "tests/test_cli_json_commands.py",
+      "tests/test_cli_registry.py",
+      "tests/test_cli_smoke.py"
+    ],
+    "E4-S3": [
+      "src/meetingctl/commands.py",
+      "tests/fixtures/start_success.json",
+      "tests/test_start_stop_flow.py",
+      "tests/test_start_wrapper.py"
+    ],
+    "E1-S3": [
+      "src/meetingctl/config.py",
+      "tests/test_config.py"
+    ],
+    "E7-S1": [
+      "src/meetingctl/doctor.py",
+      "tests/fixtures/doctor_missing_paths.json",
+      "tests/fixtures/doctor_ok.json",
+      "tests/test_doctor_command.py"
+    ],
+    "E3-S1": [
+      "src/meetingctl/note/identity.py",
+      "tests/test_note_identity.py"
+    ],
+    "E3-S3": [
+      "src/meetingctl/note/patcher.py",
+      "tests/test_note_patcher.py"
+    ],
+    "E3-S2": [
+      "src/meetingctl/note/service.py",
+      "src/meetingctl/note/template.py",
+      "templates/meeting.md",
+      "tests/test_note_service.py",
+      "tests/test_note_template.py"
+    ],
+    "E5-S3": [
+      "src/meetingctl/process.py",
+      "src/meetingctl/queue_worker.py",
+      "tests/test_process_orchestrator.py",
+      "tests/test_process_queue_cli.py",
+      "tests/test_queue_worker.py"
+    ],
+    "E4-S2": [
+      "src/meetingctl/recording.py"
+    ],
+    "E4-S1": [
+      "src/meetingctl/runtime_state.py",
+      "tests/test_runtime_state.py"
+    ],
+    "E5-S2": [
+      "src/meetingctl/summary_client.py",
+      "src/meetingctl/summary_parser.py",
+      "tests/test_summary_client.py",
+      "tests/test_summary_parser.py"
+    ],
+    "E5-S1": [
+      "src/meetingctl/transcription.py",
+      "tests/test_transcription_runner.py"
+    ],
+    "E2-S4": [
+      "tests/fixtures/event_error_jxa_unavailable.json",
+      "tests/fixtures/event_error_no_match.json",
+      "tests/fixtures/event_now_or_next.json",
+      "tests/test_event_command_contract.py"
+    ],
+    "E3-S4": [
+      "tests/fixtures/patch_note_dry_run.json",
+      "tests/test_patch_note_cli.py",
+      "tests/test_patch_note_dry_run.py"
+    ],
+    "E4-S5": [
+      "tests/fixtures/status_active.json",
+      "tests/fixtures/status_idle.json",
+      "tests/test_status_contract.py"
+    ],
+    "E4-S4": [
+      "tests/fixtures/stop_idle.json",
+      "tests/fixtures/stop_success.json",
+      "tests/test_start_stop_contract.py"
+    ]
+  },
+  "unmapped_files": [],
+  "conflicts": {
+    "km/Meeting-Automation-Macros.kmmacros": [
+      "E6-S1",
+      "E6-S2",
+      "E6-S3",
+      "E6-S4",
+      "E6-S5"
+    ],
+    "tests/test_calendar_resolution.py": [
+      "E2-S2",
+      "E2-S3"
+    ],
+    "tests/test_km_macro_package.py": [
+      "E6-S1",
+      "E6-S2",
+      "E6-S3",
+      "E6-S4",
+      "E6-S5"
+    ]
+  }
+}

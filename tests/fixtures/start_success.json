@@ -1,0 +1,8 @@
+{
+  "recording": true,
+  "meeting_id": "m-123",
+  "title": "Weekly Sync",
+  "platform": "teams",
+  "note_path": "/tmp/weekly-sync.md",
+  "fallback_used": false
+}

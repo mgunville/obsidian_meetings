@@ -1,0 +1,9 @@
+{
+  "note_path": "__NOTE_PATH__",
+  "changed": true,
+  "dry_run": true,
+  "write_performed": false,
+  "changed_regions": [
+    "minutes"
+  ]
+}

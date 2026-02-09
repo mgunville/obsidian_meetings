@@ -1,0 +1,30 @@
+var app = Application('Calendar');
+var cals = app.calendars();
+var now = new Date();
+var oneHourAgo = new Date(now.getTime() - 3600000);
+var sevenDaysLater = new Date(now.getTime() + 7 * 24 * 3600000);
+
+var events = [];
+for (var i = 0; i < cals.length; i++) {
+  var cal = cals[i];
+  var calEvents = cal.events.whose({
+    _and: [
+      { startDate: { _greaterThanEquals: oneHourAgo } },
+      { startDate: { _lessThanEquals: sevenDaysLater } }
+    ]
+  })();
+
+  for (var j = 0; j < calEvents.length; j++) {
+    var evt = calEvents[j];
+    events.push({
+      title: evt.summary(),
+      startDate: evt.startDate().toString(),
+      endDate: evt.endDate().toString(),
+      calendarTitle: cal.name(),
+      location: evt.location() || "",
+      notes: evt.description() || ""
+    });
+  }
+}
+
+JSON.stringify(events);

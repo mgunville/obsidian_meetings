@@ -1,0 +1,23 @@
+{
+  "ok": false,
+  "checks": [
+    {
+      "name": "vault_path",
+      "ok": false,
+      "message": "Vault path is missing.",
+      "hint": "Set VAULT_PATH in your .env file."
+    },
+    {
+      "name": "recordings_path",
+      "ok": false,
+      "message": "Recordings path is missing.",
+      "hint": "Set RECORDINGS_PATH in your .env file."
+    },
+    {
+      "name": "calendar_backend",
+      "ok": false,
+      "message": "No calendar backend available.",
+      "hint": "Enable EventKit or JXA, then run `meetingctl doctor` again."
+    }
+  ]
+}

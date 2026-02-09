@@ -1,0 +1,8 @@
+{
+  "recording": true,
+  "meeting_id": "m-123",
+  "title": "Design Sync",
+  "platform": "teams",
+  "duration_human": "1h 0m",
+  "note_path": "/tmp/design-sync.md"
+}

@@ -1,0 +1,20 @@
+{
+  "ok": true,
+  "checks": [
+    {
+      "name": "vault_path",
+      "ok": true,
+      "message": "Vault path is set."
+    },
+    {
+      "name": "recordings_path",
+      "ok": true,
+      "message": "Recordings path is set."
+    },
+    {
+      "name": "calendar_backend",
+      "ok": true,
+      "message": "At least one calendar backend is available."
+    }
+  ]
+}

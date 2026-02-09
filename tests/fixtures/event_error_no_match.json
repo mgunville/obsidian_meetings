@@ -1,0 +1,5 @@
+{
+  "error": "No ongoing/upcoming event in window",
+  "backend": "eventkit",
+  "hint": "Run `meetingctl doctor` and verify calendar permissions/backends."
+}
