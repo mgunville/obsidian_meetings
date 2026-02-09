@@ -199,7 +199,15 @@ def test_eventkit_backend_uses_helper_when_configured(mock_run: MagicMock, monke
     assert events[0]["start"] == "2026-02-08T10:00:00+00:00"
     assert events[0]["end"] == "2026-02-08T10:30:00+00:00"
     call_args = mock_run.call_args[0][0]
-    assert helper_path in call_args
+    assert Path(helper_path).resolve().as_posix() in [Path(arg).as_posix() for arg in call_args]
+
+
+def test_eventkit_backend_rejects_relative_helper_path(monkeypatch) -> None:
+    monkeypatch.setenv("MEETINGCTL_EVENTKIT_HELPER", "scripts/eventkit_fetch.py")
+    backend = EventKitBackend()
+    with pytest.raises(BackendUnavailableError) as excinfo:
+        backend.fetch_events()
+    assert "must be absolute" in str(excinfo.value)
 
 
 @patch("meetingctl.calendar.backends.subprocess.run")

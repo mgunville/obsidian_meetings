@@ -130,26 +130,42 @@ def _resolve_wav_path(
     recordings_path: Path,
     meeting_id: str,
 ) -> Path:
+    recordings_root = recordings_path.expanduser().resolve()
     explicit = payload.get("wav_path")
     if isinstance(explicit, str) and explicit.strip():
         candidate = Path(explicit).expanduser().resolve()
-        if candidate.exists():
-            return candidate
+        if not candidate.exists():
+            raise ValueError(f"Missing WAV input: {candidate}. Stop recording before processing queue.")
+        if not candidate.is_relative_to(recordings_root):
+            raise ValueError(
+                f"WAV path must be within recordings path: {recordings_root}."
+            )
+        return candidate
 
-    expected = recordings_path / f"{meeting_id}.wav"
+    expected = recordings_root / f"{meeting_id}.wav"
     if expected.exists():
         return expected
 
-    latest = sorted(recordings_path.glob("*.wav"), key=lambda p: p.stat().st_mtime, reverse=True)
-    if latest:
-        return latest[0]
-    return expected
+    raise ValueError(f"Missing WAV input: {expected}. Stop recording before processing queue.")
+
+
+def _resolve_note_path(*, note_path: str, vault_path: Path) -> Path:
+    resolved_note_path = Path(note_path).expanduser().resolve()
+    resolved_vault_path = vault_path.expanduser().resolve()
+    if not resolved_note_path.is_relative_to(resolved_vault_path):
+        raise ValueError(
+            f"Note path must be inside vault path: {resolved_vault_path}."
+        )
+    return resolved_note_path
 
 
 def _process_context_from_payload(payload: dict[str, object]) -> ProcessContext:
     cfg = load_config()
     meeting_id = _require_payload_str(payload, "meeting_id")
-    note_path = Path(_require_payload_str(payload, "note_path")).expanduser().resolve()
+    note_path = _resolve_note_path(
+        note_path=_require_payload_str(payload, "note_path"),
+        vault_path=cfg.vault_path,
+    )
     transcript_path = cfg.recordings_path / f"{meeting_id}.txt"
     wav_path = _resolve_wav_path(
         payload=payload,

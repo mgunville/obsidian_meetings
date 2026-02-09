@@ -37,9 +37,25 @@ else
   echo "EventKit helper check: FAILED (scripts/eventkit_fetch.py not executable)"
 fi
 
-set -a
-source .env 2>/dev/null || true
-set +a
+if [ -f .env ]; then
+  while IFS= read -r raw_line || [ -n "$raw_line" ]; do
+    line="${raw_line#"${raw_line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    if [[ -z "$line" || "$line" == \#* ]]; then
+      continue
+    fi
+    if [[ "$line" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then
+      key="${line%%=*}"
+      value="${line#*=}"
+      if [[ "$value" =~ ^\".*\"$ ]]; then
+        value="${value:1:${#value}-2}"
+      elif [[ "$value" =~ ^\'.*\'$ ]]; then
+        value="${value:1:${#value}-2}"
+      fi
+      export "$key=$value"
+    fi
+  done < .env
+fi
 PYTHONPATH=src python -m meetingctl.cli doctor --json || true
 
 echo "Setup complete. Activate with: source .venv/bin/activate"

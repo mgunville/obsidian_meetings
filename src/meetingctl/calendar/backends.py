@@ -41,7 +41,7 @@ class EventKitBackend:
 
         helper = os.environ.get("MEETINGCTL_EVENTKIT_HELPER")
         if helper:
-            return _run_eventkit_helper(Path(helper))
+            return _run_eventkit_helper(Path(helper).expanduser())
 
         helper_mode = os.environ.get("MEETINGCTL_EVENTKIT_HELPER_MODE", "auto").lower()
         default_helper = _default_eventkit_helper_path()
@@ -219,6 +219,11 @@ class JXABackend:
 
 
 def _run_eventkit_helper(helper_path: Path) -> list[dict[str, object]]:
+    if not helper_path.is_absolute():
+        raise BackendUnavailableError(
+            "EventKit helper path must be absolute for safety."
+        )
+    helper_path = helper_path.resolve()
     if not helper_path.exists():
         raise BackendUnavailableError(f"EventKit helper not found: {helper_path}")
     result = subprocess.run(

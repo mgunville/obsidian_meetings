@@ -22,7 +22,7 @@ TEST_QUEUE_FILE="$TEST_STATE_DIR/process_queue.jsonl"
 TEST_PROCESSED_FILE="$TEST_STATE_DIR/processed_jobs.jsonl"
 TEST_RECORDINGS_DIR="$TEST_STATE_DIR/recordings"
 TEST_VAULT_DIR="$TEST_STATE_DIR/vault"
-TEST_NOTE_PATH="$TEST_STATE_DIR/meeting-note.md"
+TEST_NOTE_PATH="$TEST_VAULT_DIR/meeting-note.md"
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PYTHON_BIN="${PYTHON_BIN:-$PROJECT_ROOT/.venv/bin/python}"
 SMOKE_REAL_MACHINE="${SMOKE_REAL_MACHINE:-0}"
@@ -79,15 +79,22 @@ run_test() {
 
     echo -e "${BOLD}Test $TESTS_TOTAL: $test_name${NC}"
 
-    if eval "$test_cmd"; then
-        echo -e "${GREEN}✓ PASS${NC}\n"
-        TESTS_PASSED=$((TESTS_PASSED + 1))
-        return 0
+    if declare -F "$test_cmd" >/dev/null 2>&1; then
+        if "$test_cmd"; then
+            echo -e "${GREEN}✓ PASS${NC}\n"
+            TESTS_PASSED=$((TESTS_PASSED + 1))
+            return 0
+        fi
     else
-        echo -e "${RED}✗ FAIL${NC}\n"
-        TESTS_FAILED=$((TESTS_FAILED + 1))
-        return 1
+        if bash -lc "$test_cmd"; then
+            echo -e "${GREEN}✓ PASS${NC}\n"
+            TESTS_PASSED=$((TESTS_PASSED + 1))
+            return 0
+        fi
     fi
+    echo -e "${RED}✗ FAIL${NC}\n"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+    return 1
 }
 
 assert_json_field() {
