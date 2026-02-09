@@ -142,7 +142,7 @@ Duration: 3-5 days
 - [done] B7: Queue-to-pipeline production wiring
   - replace log-only queue handler with real `run_processing` execution path
   - add integration regression tests for queued success/failure outcomes
-- [in_progress] B5: Story-scoped commit slicing
-  - split current working tree into one-commit-per-story where required
+- [done] B5: Story-scoped commit slicing
+  - Option A applied: baseline snapshot commit created, enabling clean story-scoped commits from this point forward
 - [done] B6: Incremental workflow runner script
   - add `scripts/run-incremental-workflow.sh` to execute stepwise checks quickly
