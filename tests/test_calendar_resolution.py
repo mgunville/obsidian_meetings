@@ -44,6 +44,32 @@ def test_resolution_falls_back_to_jxa_when_eventkit_unavailable() -> None:
     assert payload["platform"] == "teams"
 
 
+def test_resolution_falls_back_to_jxa_when_eventkit_empty() -> None:
+    now = datetime(2026, 2, 8, 10, 0, tzinfo=UTC)
+    eventkit = EventKitBackend(loader=lambda: [])
+    jxa = JXABackend(
+        loader=lambda: [
+            {
+                "title": "Weekly Sync",
+                "start": "2026-02-08T10:02:00+00:00",
+                "end": "2026-02-08T10:30:00+00:00",
+                "location": "https://teams.microsoft.com/l/meetup-join/abc",
+            }
+        ]
+    )
+
+    payload = resolve_now_or_next_event(
+        now=now,
+        window_minutes=5,
+        eventkit=eventkit,
+        jxa=jxa,
+    )
+
+    assert payload["backend"] == "jxa"
+    assert payload["fallback_used"] is True
+    assert payload["platform"] == "teams"
+
+
 def test_resolve_event_near_timestamp_selects_nearest_match() -> None:
     at = datetime(2026, 2, 8, 10, 5, tzinfo=UTC)
     eventkit = EventKitBackend(

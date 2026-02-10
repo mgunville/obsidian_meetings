@@ -91,6 +91,18 @@ def _fetch_events(*, eventkit: EventKitBackend, jxa: JXABackend) -> tuple[list[d
         events = eventkit.fetch_events()
         backend = "eventkit"
         fallback_used = False
+        # Some runtimes return an empty EventKit result despite calendar data being
+        # available via JXA. Prefer JXA only when it can provide at least one event.
+        if not events:
+            try:
+                jxa_events = jxa.fetch_events()
+                if jxa_events:
+                    events = jxa_events
+                    backend = "jxa"
+                    fallback_used = True
+            except Exception:
+                # Keep EventKit empty result semantics when JXA is unavailable/erroring.
+                pass
     except BackendUnavailableError:
         try:
             events = jxa.fetch_events()
