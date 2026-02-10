@@ -23,7 +23,9 @@
 ## Behavioral Changes Confirmed
 - Config consolidation:
   - KM bundle is now under `config/km/`.
-  - Audio Hijack session exports are under `config/audio_hijack_sessions/`.
+  - Audio Hijack assets are under `config/audio_hijack/`:
+    - sessions: `config/audio_hijack/sessions/`
+    - scripts: `config/audio_hijack/scripts/`
 - Platform policy:
   - `system` platform is disabled by default.
   - unknown platform fallback now uses `meet` (`Browser+Mic`).

@@ -1,0 +1,7 @@
+const app = Application("Audio Hijack");
+const session = app.sessionWithName("Zoom+Mic");
+if (!session.exists()) {
+  throw new Error("Session not found: Zoom+Mic");
+}
+session.start();
+

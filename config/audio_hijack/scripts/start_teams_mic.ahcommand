@@ -1,0 +1,7 @@
+const app = Application("Audio Hijack");
+const session = app.sessionWithName("Teams+Mic");
+if (!session.exists()) {
+  throw new Error("Session not found: Teams+Mic");
+}
+session.start();
+

@@ -6,7 +6,9 @@ This folder stores runtime integration assets that should stay with the project.
 
 - `config/km/`
   - Keyboard Maestro macro bundle(s), including `Meeting-Automation-Macros.kmmacros`.
-- `config/audio_hijack_sessions/`
+- `config/audio_hijack/scripts/`
+  - Audio Hijack control scripts (`*.ahcommand` / `*.ahscript`) for start/stop automation.
+- `config/audio_hijack/sessions/`
   - Audio Hijack session exports (`*.ah4session`) used for environment setup and backup.
 
 ## Notes
