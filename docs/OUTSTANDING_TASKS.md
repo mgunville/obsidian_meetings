@@ -1,6 +1,6 @@
 # Outstanding Tasks (Canonical)
 
-Last updated: 2026-02-10 (late)
+Last updated: 2026-02-10 (final pass)
 
 This is the single source of truth for active work. Other planning/audit docs are historical snapshots.
 
@@ -18,15 +18,13 @@ This is the single source of truth for active work. Other planning/audit docs ar
   - Calendar permission is now granted in the real runtime.
   - `meetingctl doctor --json` now reports `calendar_permissions: authorized (full access)`.
   - `meetingctl event --now-or-next 1440 --json` currently returns no ongoing/upcoming event in window (environment/timing, not permission).
-- [ ] Keyboard Maestro macro activation/import closure:
-  - Keyboard Maestro CLI exists (`keyboardmaestro 11.0.4`).
-  - Triggering `E6S3-STATUS` currently returns:
-    - `Found no macros with a matching name (macros must be enabled, and in macro groups that are enabled and currently active)`.
-  - Recovery incident (2026-02-09):
-    - direct plist injection approach caused Keyboard Maestro Editor crash on launch.
-    - restored safely from local backup: `Keyboard Maestro Macros.backup-20260209-223019.plist`.
-    - policy: do not modify Keyboard Maestro plist directly; use only UI import of KM-exported valid bundles.
-  - Required: ensure `/config/km/Meeting-Automation-Macros.kmmacros` is imported/enabled in active macro group, then re-run macro trigger checks.
+- [x] Keyboard Maestro macro activation/import closure:
+  - `config/km/Meeting-Automation-Macros.kmmacros` imports successfully.
+  - Trigger verification passes:
+    - `keyboardmaestro -a -v "Check Recording Status"` returns async success from KM Engine.
+  - Recovery incident (2026-02-09) is documented:
+    - direct plist injection caused editor crash and was rolled back.
+    - policy remains: do not modify Keyboard Maestro plist directly.
 - [ ] Audio Hijack session-control API alignment:
   - App is installed and scriptable at basic level (`tell application "Audio Hijack" to get name` works).
   - Current JXA session call shape (`sessionWithName(...).start()/stop()`) returns `Message not understood (-1708)`.
@@ -46,7 +44,8 @@ This is the single source of truth for active work. Other planning/audit docs ar
 - [x] Calendar-assisted rename feasibility check executed:
   - `meetingctl backfill --match-calendar --rename --dry-run` ran successfully over discovered recordings.
   - Current result: `matched_calendar=0` / `unmatched_calendar=4` (no event matches for tested recordings in available calendar data).
-- [ ] Update release/integration audit docs with fresh real-machine results from this run.
+- [x] Update release/integration audit docs with fresh real-machine results from this run.
+  - Updated snapshot added: `docs/RELEASE_AUDIT_2026-02-10.md`.
 
 ## Deferred by request
 
