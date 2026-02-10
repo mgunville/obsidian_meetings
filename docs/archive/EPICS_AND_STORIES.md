@@ -1,5 +1,7 @@
 # Epics and Stories
 
+Status: Historical snapshot. Active tracking moved to `docs/OUTSTANDING_TASKS.md`.
+
 This backlog is sliced for independent parallel work with clear dependencies.
 
 ## Epic E1: Project Bootstrap and Core Contracts

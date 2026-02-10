@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+import os
 from typing import Callable, Protocol
 
 from meetingctl.runtime_state import RuntimeStateStore
@@ -19,8 +20,11 @@ SESSION_BY_PLATFORM = {
     "zoom": "Zoom+Mic",
     "meet": "Browser+Mic",
     "webex": "Browser+Mic",
-    "system": "System+Mic",
 }
+
+
+def _system_platform_enabled() -> bool:
+    return os.environ.get("MEETINGCTL_ENABLE_SYSTEM_PLATFORM", "0") == "1"
 
 
 def _duration_human(started_at: str | None, now: datetime) -> str:
@@ -72,10 +76,19 @@ def start_recording_flow(
     if state and state.get("recording"):
         raise RuntimeError("A meeting is already in progress.")
 
-    raw_platform = str(event.get("platform", "system")).lower()
-    fallback_used = raw_platform not in SESSION_BY_PLATFORM
-    platform = raw_platform if not fallback_used else "system"
-    session_name = SESSION_BY_PLATFORM[platform]
+    raw_platform = str(event.get("platform", "meet")).lower()
+    if raw_platform == "system":
+        if not _system_platform_enabled():
+            raise RuntimeError(
+                "Platform 'system' is disabled. Set MEETINGCTL_ENABLE_SYSTEM_PLATFORM=1 to enable."
+            )
+        fallback_used = False
+        platform = "system"
+        session_name = "System+Mic"
+    else:
+        fallback_used = raw_platform not in SESSION_BY_PLATFORM
+        platform = raw_platform if not fallback_used else "meet"
+        session_name = SESSION_BY_PLATFORM[platform]
 
     with store.lock():
         recorder.start(session_name)
@@ -134,7 +147,7 @@ def stop_recording_flow(
             "warning": "No active recording. Start a meeting before calling stop.",
         }
 
-    session_name = str(state.get("session_name", SESSION_BY_PLATFORM["system"]))
+    session_name = str(state.get("session_name", SESSION_BY_PLATFORM["meet"]))
     with store.lock():
         recorder.stop(session_name)
         store.clear_state()

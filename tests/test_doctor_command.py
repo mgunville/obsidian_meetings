@@ -61,6 +61,23 @@ def test_doctor_checks_eventkit_permissions(mock_ekstore_class: MagicMock, monke
 
 
 @patch("meetingctl.doctor.EKEventStore")
+def test_doctor_accepts_eventkit_full_access_status(
+    mock_ekstore_class: MagicMock, monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("VAULT_PATH", str(tmp_path))
+    monkeypatch.setenv("RECORDINGS_PATH", str(tmp_path))
+
+    # Newer OS status for full read access.
+    mock_ekstore_class.authorizationStatusForEntityType_.return_value = 4
+
+    payload = run_doctor()
+    calendar_check = next((c for c in payload["checks"] if c["name"] == "calendar_permissions"), None)
+    assert calendar_check is not None
+    assert calendar_check["ok"] is True
+    assert "authorized" in str(calendar_check["message"]).lower()
+
+
+@patch("meetingctl.doctor.EKEventStore")
 def test_doctor_detects_missing_calendar_permissions(mock_ekstore_class: MagicMock, monkeypatch, tmp_path: Path) -> None:
     """Test that doctor detects when calendar permissions are denied."""
     monkeypatch.setenv("VAULT_PATH", str(tmp_path))

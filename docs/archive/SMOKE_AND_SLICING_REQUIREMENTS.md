@@ -1,5 +1,7 @@
 # Smoke + Slicing Execution Requirements
 
+Status: Historical snapshot. Active tracking moved to `docs/OUTSTANDING_TASKS.md`.
+
 This document defines exactly what is required to close the remaining open items:
 - `B3` real-machine smoke completion
 - `B5` story-scoped commit slicing execution
@@ -8,7 +10,7 @@ This document defines exactly what is required to close the remaining open items
 - Story report status:
   - `unmapped_files = 0`
   - `conflicts = 3`
-    - `km/Meeting-Automation-Macros.kmmacros` (`E6-S1..E6-S5`)
+    - `config/km/Meeting-Automation-Macros.kmmacros` (`E6-S1..E6-S5`)
     - `tests/test_km_macro_package.py` (`E6-S1..E6-S5`)
     - `tests/test_calendar_resolution.py` (`E2-S2`,`E2-S3`)
 - Git working tree is currently all untracked (`??` for top-level dirs/files).
@@ -25,7 +27,7 @@ This document defines exactly what is required to close the remaining open items
   - choose split anchor (recommended):
     - E2-S2 = EventKit adapter tests
     - E2-S3 = JXA fallback tests
-- `km/Meeting-Automation-Macros.kmmacros` + `tests/test_km_macro_package.py`:
+- `config/km/Meeting-Automation-Macros.kmmacros` + `tests/test_km_macro_package.py`:
   - choose one:
     - single combined commit for `E6-S1..E6-S5` (recommended, practical for one macro bundle)
     - attempt macro XML/file-level slicing by story (higher risk)

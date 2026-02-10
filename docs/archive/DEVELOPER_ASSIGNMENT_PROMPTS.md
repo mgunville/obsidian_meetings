@@ -1,5 +1,7 @@
 # Developer Assignment Prompts (v2: Model-Aware)
 
+Status: Historical snapshot. Active tracking moved to `docs/OUTSTANDING_TASKS.md`.
+
 This version assigns work to available models:
 - DeepSeek-R1
 - Claude
@@ -221,7 +223,7 @@ Constraints:
 - UX layer must consume stable CLI JSON contracts from Codex/DeepSeek lanes.
 
 Deliverables:
-- `km/Meeting-Automation-Macros.kmmacros`
+- `config/km/Meeting-Automation-Macros.kmmacros`
 - `docs/UI-QUICKSTART.md`
 - `docs/HOTKEYS.md`
 - integration smoke checks in scripts/tests

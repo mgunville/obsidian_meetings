@@ -28,9 +28,17 @@ Create sessions with exact names:
 - `Teams+Mic`
 - `Zoom+Mic`
 - `Browser+Mic`
-- `System+Mic`
+- `System+Mic` (optional; disabled by default in `meetingctl`)
 
 Each session should record to WAV and include the required audio sources.
+If direct external JXA control is unsupported on your Audio Hijack build, configure script-based control:
+- `MEETINGCTL_AUDIO_HIJACK_START_SCRIPT=/absolute/path/to/start.ahscript`
+- `MEETINGCTL_AUDIO_HIJACK_STOP_SCRIPT=/absolute/path/to/stop.ahscript`
+- `meetingctl` will execute these via `open -a "Audio Hijack" ...` before falling back to direct `osascript`.
+`meetingctl` platform behavior:
+- default ad-hoc platform is `meet` (`Browser+Mic`)
+- unknown platform fallback targets `Browser+Mic`
+- `system` platform is opt-in and requires `MEETINGCTL_ENABLE_SYSTEM_PLATFORM=1`
 `process-queue` WAV resolution:
 - preferred: explicit `wav_path` from queue payload
 - otherwise: `<meeting_id>.wav` in `RECORDINGS_PATH`

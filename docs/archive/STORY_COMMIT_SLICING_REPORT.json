@@ -101,23 +101,23 @@
       "pyproject.toml"
     ],
     "E6-S1": [
-      "km/Meeting-Automation-Macros.kmmacros",
+      "config/km/Meeting-Automation-Macros.kmmacros",
       "tests/test_km_macro_package.py"
     ],
     "E6-S2": [
-      "km/Meeting-Automation-Macros.kmmacros",
+      "config/km/Meeting-Automation-Macros.kmmacros",
       "tests/test_km_macro_package.py"
     ],
     "E6-S3": [
-      "km/Meeting-Automation-Macros.kmmacros",
+      "config/km/Meeting-Automation-Macros.kmmacros",
       "tests/test_km_macro_package.py"
     ],
     "E6-S4": [
-      "km/Meeting-Automation-Macros.kmmacros",
+      "config/km/Meeting-Automation-Macros.kmmacros",
       "tests/test_km_macro_package.py"
     ],
     "E6-S5": [
-      "km/Meeting-Automation-Macros.kmmacros",
+      "config/km/Meeting-Automation-Macros.kmmacros",
       "tests/test_km_macro_package.py"
     ],
     "E5-S4": [
@@ -221,7 +221,7 @@
   },
   "unmapped_files": [],
   "conflicts": {
-    "km/Meeting-Automation-Macros.kmmacros": [
+    "config/km/Meeting-Automation-Macros.kmmacros": [
       "E6-S1",
       "E6-S2",
       "E6-S3",

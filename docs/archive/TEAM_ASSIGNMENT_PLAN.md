@@ -1,5 +1,7 @@
 # Team Assignment Plan
 
+Status: Historical snapshot. Active tracking moved to `docs/OUTSTANDING_TASKS.md`.
+
 Use these lanes so coders can work mostly independently.
 
 ## Lane A: Core CLI and Config

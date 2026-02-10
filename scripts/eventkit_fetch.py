@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import sys
 import threading
+import time
 
 try:
     from EventKit import EKEventStore, EKEntityTypeEvent
@@ -31,7 +32,16 @@ def main() -> int:
 
         store.requestAccessToEntityType_completion_(EKEntityTypeEvent, _completion)
         done.wait(timeout=10)
-        if not result["granted"]:
+        current_status = EKEventStore.authorizationStatusForEntityType_(EKEntityTypeEvent)
+        # In some runtimes the callback may not fire reliably without a full app run loop.
+        # Poll status briefly so we do not misreport denied access when authorization succeeded.
+        if current_status == 0 and not done.is_set():
+            for _ in range(10):
+                time.sleep(0.3)
+                current_status = EKEventStore.authorizationStatusForEntityType_(EKEntityTypeEvent)
+                if current_status != 0:
+                    break
+        if not result["granted"] and current_status != 3:
             print("Calendar permission not granted.", file=sys.stderr)
             return 2
 

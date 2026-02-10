@@ -34,11 +34,30 @@ def test_start_flow_surfaces_fallback_and_writes_state(tmp_path: Path) -> None:
 
     assert payload["recording"] is True
     assert payload["fallback_used"] is True
-    assert payload["platform"] == "system"
-    assert recorder.started == ["System+Mic"]
+    assert payload["platform"] == "meet"
+    assert recorder.started == ["Browser+Mic"]
     state = store.load_state()
     assert state is not None
     assert state["meeting_id"] == "m-123"
+
+
+def test_start_flow_rejects_system_platform_by_default(tmp_path: Path) -> None:
+    store = RuntimeStateStore(tmp_path / "current.json")
+    recorder = FakeRecorder()
+
+    try:
+        start_recording_flow(
+            store=store,
+            recorder=recorder,
+            event={"title": "Weekly Sync", "platform": "system"},
+            meeting_id="m-123",
+            note_path="/tmp/weekly-sync.md",
+            now=datetime(2026, 2, 8, 10, 0, tzinfo=UTC),
+        )
+    except RuntimeError as exc:
+        assert "disabled" in str(exc).lower()
+    else:  # pragma: no cover - defensive assertion style
+        raise AssertionError("Expected RuntimeError for system platform when disabled.")
 
 
 def test_stop_flow_returns_safe_warning_when_idle(tmp_path: Path) -> None:

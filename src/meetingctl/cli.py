@@ -47,7 +47,7 @@ def build_parser() -> argparse.ArgumentParser:
     start_parser = sub.add_parser("start")
     start_parser.add_argument("--meeting-id")
     start_parser.add_argument("--title")
-    start_parser.add_argument("--platform", default="system")
+    start_parser.add_argument("--platform", default="meet")
     start_parser.add_argument("--note-path")
     start_parser.add_argument("--window-minutes", type=int, default=5)
     start_parser.add_argument("--json", action="store_true")

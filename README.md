@@ -44,8 +44,8 @@ Install separately:
 - YAGNI: implement only what a story needs.
 - Keep interfaces small and typed.
 
-## Planning Docs
-- `docs/EPICS_AND_STORIES.md`
-- `docs/TEAM_ASSIGNMENT_PLAN.md`
+## Documentation
+- `docs/DOCS_INDEX.md` (canonical docs entrypoint)
+- `docs/OUTSTANDING_TASKS.md` (single active task list)
 - `docs/SETUP_AND_DEPENDENCIES.md`
 - `docs/TDD_AND_DOD.md`

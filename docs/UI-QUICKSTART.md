@@ -38,7 +38,7 @@ The Meeting Automation system provides one-keystroke UX for:
    ```
 
 2. **Import Keyboard Maestro macros**
-   - Double-click `km/Meeting-Automation-Macros.kmmacros`
+   - Double-click `config/km/Meeting-Automation-Macros.kmmacros`
    - This imports the "Meeting Automation" macro group
    - All macros are enabled by default except "Auto-detect"
 
@@ -99,8 +99,8 @@ The Meeting Automation system provides one-keystroke UX for:
 **Default hotkey:** `⌃⌘⌥S` (Control+Command+Option+S)
 
 1. Press the hotkey
-2. Enter meeting title in prompt
-3. Recording starts with System+Mic session
+2. (Optional) set `AdHocTitle` variable in Keyboard Maestro beforehand
+3. Recording starts with Browser+Mic session (`meet` platform)
 4. No calendar event required
 
 **Use case:** Impromptu meetings, phone calls, brainstorming sessions
@@ -118,7 +118,7 @@ The Meeting Automation system provides one-keystroke UX for:
 
 - **Fallback Used:** Yellow warning icon
   - Platform detection failed
-  - Using System+Mic session instead
+  - Using Browser+Mic session instead
   - Recording still works, but platform is generic
 - **No Active Recording:** When stop is pressed without active recording
 

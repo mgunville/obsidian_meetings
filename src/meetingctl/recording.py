@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 import subprocess
 from typing import Protocol
 
@@ -26,8 +27,28 @@ class AudioHijackRecorder:
     def __init__(self, runner: CommandRunner | None = None) -> None:
         self._runner = runner or subprocess.run
 
+    def _run_configured_script(self, env_var: str) -> bool:
+        script_path = os.environ.get(env_var, "").strip()
+        if not script_path:
+            return False
+        resolved = Path(script_path).expanduser()
+        if not resolved.exists():
+            raise FileNotFoundError(f"Configured Audio Hijack script not found: {resolved}")
+        self._runner(
+            [
+                "open",
+                "-a",
+                "Audio Hijack",
+                str(resolved),
+            ],
+            check=True,
+        )
+        return True
+
     def start(self, session_name: str) -> None:
         if os.environ.get("MEETINGCTL_RECORDING_DRY_RUN") == "1":
+            return
+        if self._run_configured_script("MEETINGCTL_AUDIO_HIJACK_START_SCRIPT"):
             return
         self._runner(
             [
@@ -42,6 +63,8 @@ class AudioHijackRecorder:
 
     def stop(self, session_name: str) -> None:
         if os.environ.get("MEETINGCTL_RECORDING_DRY_RUN") == "1":
+            return
+        if self._run_configured_script("MEETINGCTL_AUDIO_HIJACK_STOP_SCRIPT"):
             return
         self._runner(
             [

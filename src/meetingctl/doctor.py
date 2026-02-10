@@ -77,9 +77,16 @@ def run_doctor() -> dict[str, object]:
     # Check EventKit calendar permissions
     if EKEventStore is not None:
         auth_status = EKEventStore.authorizationStatusForEntityType_(EKEntityTypeEvent)
-        # EKAuthorizationStatus: 0=NotDetermined, 1=Restricted, 2=Denied, 3=Authorized
-        calendar_ok = auth_status == 3
-        status_names = {0: "not determined", 1: "restricted", 2: "denied", 3: "authorized"}
+        # EKAuthorizationStatus values vary by OS:
+        # 0=NotDetermined, 1=Restricted, 2=Denied, 3=WriteOnly/Authorized, 4=FullAccess.
+        calendar_ok = auth_status in (3, 4)
+        status_names = {
+            0: "not determined",
+            1: "restricted",
+            2: "denied",
+            3: "authorized",
+            4: "authorized (full access)",
+        }
         status_name = status_names.get(auth_status, "unknown")
         checks.append(
             {

@@ -1,5 +1,7 @@
 # Execution Plan
 
+Status: Historical snapshot. Active tracking moved to `docs/OUTSTANDING_TASKS.md`.
+
 This plan layers sequencing and checkpoint control on top of `EPICS_AND_STORIES.md`.
 
 ## Planning Rules

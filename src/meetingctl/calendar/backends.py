@@ -135,6 +135,11 @@ class JXABackend:
             return payload
 
         jxa_script_path = os.environ.get("MEETINGCTL_JXA_SCRIPT")
+        if not jxa_script_path:
+            default_script = Path(__file__).resolve().parents[3] / "scripts" / "calendar_events.jxa"
+            if default_script.exists():
+                jxa_script_path = str(default_script)
+
         if jxa_script_path:
             command = ["osascript", "-l", "JavaScript", jxa_script_path]
         else:
@@ -169,15 +174,17 @@ class JXABackend:
             }
         }
         JSON.stringify(events);
-        """
+            """
             command = ["osascript", "-l", "JavaScript", "-e", jxa_script]
+
+        timeout_seconds = float(os.environ.get("MEETINGCTL_JXA_TIMEOUT_SECONDS", "30"))
 
         try:
             result = subprocess.run(
                 command,
                 capture_output=True,
                 text=True,
-                timeout=10,
+                timeout=timeout_seconds,
             )
 
             if result.returncode != 0:

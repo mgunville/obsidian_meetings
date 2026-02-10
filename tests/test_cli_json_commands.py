@@ -119,7 +119,7 @@ def test_cli_start_adhoc_without_note_path_creates_note(monkeypatch, tmp_path: P
             "--title",
             "Adhoc Session",
             "--platform",
-            "system",
+            "meet",
             "--json",
         ],
     )
