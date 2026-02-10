@@ -12,11 +12,21 @@ from meetingctl.commands import (
     stop_recording_flow,
     status_payload,
 )
-from meetingctl.calendar.service import CalendarResolutionError, resolve_now_or_next_event
+from meetingctl.calendar.service import (
+    CalendarResolutionError,
+    resolve_event_near_timestamp,
+    resolve_now_or_next_event,
+)
 from meetingctl.config import load_config
 from meetingctl.doctor import run_doctor
 from meetingctl.note.patcher import patch_note_file
-from meetingctl.note.service import create_note_from_event
+from meetingctl.note.service import (
+    create_adhoc_note,
+    create_backfill_note_for_recording,
+    create_note_from_event,
+    infer_datetime_from_recording_path,
+    preview_note_from_event,
+)
 from meetingctl.process import ProcessContext, ProcessResult, run_processing
 from meetingctl.queue_worker import QueueLockError, process_queue_jobs
 from meetingctl.recording import AudioHijackRecorder
@@ -27,7 +37,7 @@ from meetingctl.transcription import WhisperTranscriptionRunner
 
 
 def registered_commands() -> list[str]:
-    return ["start", "stop", "status", "event", "doctor", "patch-note", "process-queue"]
+    return ["start", "stop", "status", "event", "doctor", "patch-note", "process-queue", "backfill"]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -57,6 +67,16 @@ def build_parser() -> argparse.ArgumentParser:
     process_queue_parser = sub.add_parser("process-queue")
     process_queue_parser.add_argument("--max-jobs", type=int, default=1)
     process_queue_parser.add_argument("--json", action="store_true")
+
+    backfill_parser = sub.add_parser("backfill")
+    backfill_parser.add_argument("--extensions", default="wav")
+    backfill_parser.add_argument("--max-files", type=int, default=0)
+    backfill_parser.add_argument("--process-now", action="store_true")
+    backfill_parser.add_argument("--match-calendar", action="store_true")
+    backfill_parser.add_argument("--window-minutes", type=int, default=30)
+    backfill_parser.add_argument("--rename", action="store_true")
+    backfill_parser.add_argument("--dry-run", action="store_true")
+    backfill_parser.add_argument("--json", action="store_true")
 
     event_parser = sub.add_parser("event")
     event_parser.add_argument("--now-or-next", type=int, default=5)
@@ -265,6 +285,153 @@ def _default_queue_handler(payload: dict[str, object]) -> None:
         fh.write("\n")
 
 
+def _queue_job_payload(payload: dict[str, object]) -> None:
+    _queue_process_trigger()(payload)
+
+
+def _backfill_recordings(
+    *,
+    extensions: list[str],
+    max_files: int,
+    process_now: bool,
+    match_calendar: bool,
+    window_minutes: int,
+    rename: bool,
+    dry_run: bool,
+) -> dict[str, object]:
+    cfg = load_config()
+    exts = [ext.lower().lstrip(".") for ext in extensions if ext.strip()]
+    files: list[Path] = []
+    for ext in exts:
+        files.extend(cfg.recordings_path.glob(f"*.{ext}"))
+    files = sorted({path.resolve() for path in files}, key=lambda path: path.stat().st_mtime)
+    if max_files > 0:
+        files = files[:max_files]
+
+    queued_jobs = 0
+    processed_jobs = 0
+    failed_jobs = 0
+    skipped_existing = 0
+    matched_calendar = 0
+    unmatched_calendar = 0
+    errors: list[dict[str, str]] = []
+    plans: list[dict[str, object]] = []
+
+    def _rename_artifact(path: Path, meeting_id: str, dry_run_mode: bool) -> Path:
+        target = path.with_name(f"{meeting_id}{path.suffix.lower()}")
+        if target == path:
+            return path
+        if target.exists():
+            raise ValueError(f"Refusing to overwrite existing file during rename: {target}")
+        if not dry_run_mode:
+            path.rename(target)
+        return target
+
+    def _rename_recording_family(recording_path: Path, meeting_id: str, dry_run_mode: bool) -> Path:
+        moved_recording = _rename_artifact(recording_path, meeting_id, dry_run_mode)
+        for ext in (".txt", ".mp3"):
+            sibling = recording_path.with_suffix(ext)
+            if sibling.exists():
+                _rename_artifact(sibling, meeting_id, dry_run_mode)
+        return moved_recording
+
+    for recording in files:
+        stem = recording.stem
+        transcript = cfg.recordings_path / f"{stem}.txt"
+        mp3 = cfg.recordings_path / f"{stem}.mp3"
+        if transcript.exists() and mp3.exists():
+            skipped_existing += 1
+            continue
+
+        try:
+            inferred_start, inferred_source = infer_datetime_from_recording_path(recording)
+            matched_event: dict[str, object] | None = None
+            if match_calendar:
+                matched_event = resolve_event_near_timestamp(
+                    at=inferred_start,
+                    window_minutes=max(window_minutes, 0),
+                )
+                if matched_event:
+                    matched_calendar += 1
+                else:
+                    unmatched_calendar += 1
+
+            if dry_run:
+                simulated_event = (
+                    matched_event
+                    if matched_event
+                    else {
+                        "title": recording.stem.replace("_", " ").replace("-", " ").strip()
+                        or "Backfill Meeting",
+                        "start": inferred_start.isoformat(),
+                        "end": inferred_start.isoformat(),
+                    }
+                )
+                note_info = preview_note_from_event(simulated_event)
+            else:
+                note_info = (
+                    create_note_from_event(matched_event)
+                    if matched_event
+                    else create_backfill_note_for_recording(recording_path=recording)
+                )
+            meeting_id = note_info["meeting_id"]
+            resolved_recording = recording
+            if rename and matched_event:
+                resolved_recording = _rename_recording_family(
+                    recording_path=recording,
+                    meeting_id=meeting_id,
+                    dry_run_mode=dry_run,
+                )
+
+            payload = {
+                "meeting_id": meeting_id,
+                "note_path": note_info["note_path"],
+                "wav_path": str(resolved_recording),
+            }
+            if dry_run:
+                plans.append(
+                    {
+                        "recording": str(recording),
+                        "inferred_start": inferred_start.isoformat(),
+                        "inferred_source": inferred_source,
+                        "matched_calendar": bool(matched_event),
+                        "meeting_id": meeting_id,
+                        "note_path": note_info["note_path"],
+                        "wav_path": payload["wav_path"],
+                        "match_distance_minutes": (
+                            matched_event.get("match_distance_minutes") if matched_event else None
+                        ),
+                    }
+                )
+            else:
+                if process_now:
+                    _default_queue_handler(payload)
+                    processed_jobs += 1
+                else:
+                    _queue_job_payload(payload)
+                    queued_jobs += 1
+        except Exception as exc:
+            failed_jobs += 1
+            errors.append({"recording": str(recording), "error": str(exc)})
+
+    return {
+        "discovered_files": len(files),
+        "queued_jobs": queued_jobs,
+        "processed_jobs": processed_jobs,
+        "failed_jobs": failed_jobs,
+        "skipped_existing": skipped_existing,
+        "process_now": process_now,
+        "match_calendar": match_calendar,
+        "matched_calendar": matched_calendar,
+        "unmatched_calendar": unmatched_calendar,
+        "rename": rename,
+        "dry_run": dry_run,
+        "extensions": exts,
+        "plans": plans,
+        "errors": errors,
+    }
+
+
 def _format_doctor_human(payload: dict[str, object]) -> str:
     status = "OK" if payload.get("ok") else "NOT OK"
     lines = [f"Doctor status: {status}"]
@@ -297,12 +464,24 @@ def main() -> int:
     if args.command == "start":
         try:
             if args.title:
+                if args.note_path:
+                    note_info = {
+                        "meeting_id": args.meeting_id or _now_utc().strftime("adhoc-%Y%m%d%H%M%S"),
+                        "note_path": args.note_path,
+                    }
+                else:
+                    note_info = create_adhoc_note(
+                        title=args.title or "Untitled Meeting",
+                        platform=args.platform,
+                        meeting_id=args.meeting_id,
+                        start=_now_utc(),
+                    )
                 payload = start_recording_flow(
                     store=store,
                     recorder=recorder,
                     event={"title": args.title or "Untitled Meeting", "platform": args.platform},
-                    meeting_id=args.meeting_id or _now_utc().strftime("adhoc-%Y%m%d%H%M%S"),
-                    note_path=args.note_path or "",
+                    meeting_id=note_info["meeting_id"],
+                    note_path=note_info["note_path"],
                     now=_now_utc(),
                 )
             else:
@@ -364,6 +543,23 @@ def main() -> int:
                 max_jobs=max(args.max_jobs, 1),
             )
         except QueueLockError as exc:
+            _print_payload({"error": str(exc)}, args.json)
+            return 2
+        _print_payload(payload, args.json)
+        return 0
+    if args.command == "backfill":
+        try:
+            extensions = [value.strip() for value in args.extensions.split(",") if value.strip()]
+            payload = _backfill_recordings(
+                extensions=extensions or ["wav"],
+                max_files=max(args.max_files, 0),
+                process_now=args.process_now,
+                match_calendar=args.match_calendar,
+                window_minutes=args.window_minutes,
+                rename=args.rename,
+                dry_run=args.dry_run,
+            )
+        except Exception as exc:
             _print_payload({"error": str(exc)}, args.json)
             return 2
         _print_payload(payload, args.json)

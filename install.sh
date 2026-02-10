@@ -3,14 +3,21 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-if ! command -v python3.11 >/dev/null 2>&1; then
-  echo "python3.11 is required. Install Python 3.11+ first."
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "python3 (3.11+) is required. Install Python 3.11+ first."
   exit 1
 fi
 
 cd "$ROOT_DIR"
 
-python3.11 -m venv .venv
+PYTHON_OK="$(python3 -c 'import sys; print("1" if sys.version_info >= (3, 11) else "0")')"
+if [ "$PYTHON_OK" != "1" ]; then
+  echo "python3 version must be 3.11 or newer."
+  python3 -V
+  exit 1
+fi
+
+python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 pip install -r requirements.txt

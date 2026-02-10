@@ -81,3 +81,31 @@ def test_generate_summary_requires_api_key() -> None:
     """Test that generate_summary requires an API key."""
     with pytest.raises((ValueError, RuntimeError)):
         generate_summary("Test transcript", api_key="")
+
+
+@patch("meetingctl.summary_client.anthropic.Anthropic")
+def test_generate_summary_fails_when_response_content_empty(mock_anthropic_class: MagicMock) -> None:
+    mock_client = MagicMock()
+    mock_anthropic_class.return_value = mock_client
+
+    mock_response = MagicMock()
+    mock_response.content = []
+    mock_client.messages.create.return_value = mock_response
+
+    with pytest.raises(RuntimeError, match="no content blocks"):
+        generate_summary("Test transcript", api_key="test-key")
+
+
+@patch("meetingctl.summary_client.anthropic.Anthropic")
+def test_generate_summary_fails_when_no_text_block(mock_anthropic_class: MagicMock) -> None:
+    mock_client = MagicMock()
+    mock_anthropic_class.return_value = mock_client
+
+    block = MagicMock()
+    block.text = ""
+    mock_response = MagicMock()
+    mock_response.content = [block]
+    mock_client.messages.create.return_value = mock_response
+
+    with pytest.raises(RuntimeError, match="did not include a text content block"):
+        generate_summary("Test transcript", api_key="test-key")

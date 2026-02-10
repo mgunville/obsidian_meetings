@@ -11,7 +11,11 @@ from meetingctl.calendar.backends import (
     EventKitBackend,
     JXABackend,
 )
-from meetingctl.calendar.service import CalendarResolutionError, resolve_now_or_next_event
+from meetingctl.calendar.service import (
+    CalendarResolutionError,
+    resolve_event_near_timestamp,
+    resolve_now_or_next_event,
+)
 
 
 def test_resolution_falls_back_to_jxa_when_eventkit_unavailable() -> None:
@@ -38,6 +42,57 @@ def test_resolution_falls_back_to_jxa_when_eventkit_unavailable() -> None:
     assert payload["backend"] == "jxa"
     assert payload["fallback_used"] is True
     assert payload["platform"] == "teams"
+
+
+def test_resolve_event_near_timestamp_selects_nearest_match() -> None:
+    at = datetime(2026, 2, 8, 10, 5, tzinfo=UTC)
+    eventkit = EventKitBackend(
+        loader=lambda: [
+            {
+                "title": "Later Meeting",
+                "start": "2026-02-08T10:20:00+00:00",
+                "end": "2026-02-08T10:50:00+00:00",
+                "calendar_name": "Work",
+                "location": "",
+                "notes": "",
+                "url": "",
+            },
+            {
+                "title": "Near Meeting",
+                "start": "2026-02-08T10:08:00+00:00",
+                "end": "2026-02-08T10:30:00+00:00",
+                "calendar_name": "Work",
+                "location": "https://zoom.us/j/123",
+                "notes": "",
+                "url": "",
+            },
+        ]
+    )
+    jxa = JXABackend(loader=lambda: [])
+    payload = resolve_event_near_timestamp(at=at, window_minutes=30, eventkit=eventkit, jxa=jxa)
+    assert payload is not None
+    assert payload["title"] == "Near Meeting"
+    assert payload["platform"] == "zoom"
+
+
+def test_resolve_event_near_timestamp_returns_none_when_ambiguous() -> None:
+    at = datetime(2026, 2, 8, 10, 0, tzinfo=UTC)
+    eventkit = EventKitBackend(
+        loader=lambda: [
+            {
+                "title": "A",
+                "start": "2026-02-08T10:05:00+00:00",
+                "end": "2026-02-08T10:25:00+00:00",
+            },
+            {
+                "title": "B",
+                "start": "2026-02-08T10:05:00+00:00",
+                "end": "2026-02-08T10:25:00+00:00",
+            },
+        ]
+    )
+    jxa = JXABackend(loader=lambda: [])
+    assert resolve_event_near_timestamp(at=at, window_minutes=30, eventkit=eventkit, jxa=jxa) is None
 
 
 def test_resolution_error_includes_backend_and_doctor_hint() -> None:

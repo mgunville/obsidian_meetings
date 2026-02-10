@@ -98,3 +98,42 @@ def test_cli_start_uses_event_and_note_flow_when_title_missing(
     payload = json.loads(capsys.readouterr().out)
     assert payload["meeting_id"] == "m-evt"
     assert payload["fallback_used"] is True
+
+
+def test_cli_start_adhoc_without_note_path_creates_note(monkeypatch, tmp_path: Path, capsys) -> None:
+    state_file = tmp_path / "current.json"
+    queue_file = tmp_path / "process_queue.jsonl"
+    monkeypatch.setenv("MEETINGCTL_STATE_FILE", str(state_file))
+    monkeypatch.setenv("MEETINGCTL_PROCESS_QUEUE_FILE", str(queue_file))
+    monkeypatch.setenv("VAULT_PATH", str(tmp_path))
+    monkeypatch.setenv("DEFAULT_MEETINGS_FOLDER", "meetings")
+    monkeypatch.setattr(cli, "AudioHijackRecorder", lambda: FakeRecorder())
+
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "meetingctl",
+            "start",
+            "--meeting-id",
+            "m-adhoc",
+            "--title",
+            "Adhoc Session",
+            "--platform",
+            "system",
+            "--json",
+        ],
+    )
+    assert cli.main() == 0
+    start_payload = json.loads(capsys.readouterr().out)
+    assert start_payload["meeting_id"] == "m-adhoc"
+    assert isinstance(start_payload["note_path"], str)
+    assert start_payload["note_path"]
+
+    monkeypatch.setattr("sys.argv", ["meetingctl", "stop", "--json"])
+    assert cli.main() == 0
+    _ = json.loads(capsys.readouterr().out)
+    queued = queue_file.read_text().strip().splitlines()
+    assert len(queued) == 1
+    queued_payload = json.loads(queued[0])
+    assert queued_payload["meeting_id"] == "m-adhoc"
+    assert queued_payload["note_path"]

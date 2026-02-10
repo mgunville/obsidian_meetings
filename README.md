@@ -30,6 +30,15 @@ Install separately:
    - `set -a; source .env; set +a`
    - `PYTHONPATH=src python -m meetingctl.cli doctor --json`
 
+## Backfill Previous Recordings
+- Queue historical recordings:
+  - `PYTHONPATH=src python -m meetingctl.cli backfill --extensions wav,m4a --json`
+- Process immediately instead of queueing:
+  - `PYTHONPATH=src python -m meetingctl.cli backfill --extensions wav --process-now --json`
+- Calendar-assisted matching from filename timestamp (`yyyymmdd_hhmm`) or file timestamps:
+  - preview only: `PYTHONPATH=src python -m meetingctl.cli backfill --match-calendar --dry-run --json`
+  - with safe rename to canonical meeting IDs: `PYTHONPATH=src python -m meetingctl.cli backfill --match-calendar --rename --json`
+
 ## Working Agreements
 - TDD: write/adjust tests first for each story.
 - YAGNI: implement only what a story needs.

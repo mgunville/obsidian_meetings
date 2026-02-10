@@ -10,6 +10,7 @@ def test_registered_commands_are_stable() -> None:
         "doctor",
         "patch-note",
         "process-queue",
+        "backfill",
     ]
 
 

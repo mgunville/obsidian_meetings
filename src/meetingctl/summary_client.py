@@ -5,6 +5,17 @@ import anthropic
 from meetingctl.summary_parser import parse_summary_json
 
 
+def _extract_text_content(response: object) -> str:
+    content = getattr(response, "content", None)
+    if not isinstance(content, list) or not content:
+        raise RuntimeError("LLM response had no content blocks.")
+    for block in content:
+        text = getattr(block, "text", None)
+        if isinstance(text, str) and text.strip():
+            return text
+    raise RuntimeError("LLM response did not include a text content block.")
+
+
 def generate_summary(transcript: str, *, api_key: str) -> dict[str, object]:
     """Generate meeting summary from transcript using LLM API.
 
@@ -50,8 +61,7 @@ If there are no decisions or action items, use empty arrays.
         ],
     )
 
-    # Extract text from response
-    response_text = response.content[0].text
+    response_text = _extract_text_content(response)
 
     # Parse and validate the response
     return parse_summary_json(response_text)

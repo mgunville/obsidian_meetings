@@ -31,9 +31,9 @@ Create sessions with exact names:
 - `System+Mic`
 
 Each session should record to WAV and include the required audio sources.
-`process-queue` now supports WAV discovery fallback:
-- preferred: `<meeting_id>.wav`
-- fallback: newest `*.wav` in `RECORDINGS_PATH`
+`process-queue` WAV resolution:
+- preferred: explicit `wav_path` from queue payload
+- otherwise: `<meeting_id>.wav` in `RECORDINGS_PATH`
 
 ### Calendar Backend
 Preferred:
@@ -61,3 +61,22 @@ Permission probe:
 - `MODE=real bash scripts/run-incremental-workflow.sh`
 5. Real-machine smoke:
 - `SMOKE_REAL_MACHINE=1 bash scripts/smoke-test.sh`
+
+## 6) Transcription Backend Bootstrap
+- Install CLI/runtime dependencies with `bash install.sh`.
+- Ensure a transcription backend is available on PATH:
+  - `whisper` (default in `meetingctl.transcription.WhisperTranscriptionRunner`), or
+  - set up alternate wrapper binaries/scripts and adjust runtime invocation as needed.
+- Optional dry-run controls for local pipeline validation:
+  - `MEETINGCTL_PROCESSING_TRANSCRIBE_DRY_RUN=1`
+  - `MEETINGCTL_PROCESSING_SUMMARY_JSON='{"minutes":"...","decisions":[],"action_items":[]}'`
+  - `MEETINGCTL_PROCESSING_CONVERT_DRY_RUN=1`
+
+## 7) Backfill (Prior Recordings)
+- Queue all matching recordings in `RECORDINGS_PATH`:
+  - `PYTHONPATH=src python -m meetingctl.cli backfill --extensions wav,m4a --json`
+- Process them immediately:
+  - `PYTHONPATH=src python -m meetingctl.cli backfill --extensions wav --process-now --json`
+- Calendar-assisted association (filename `yyyymmdd_hhmm` first, then file timestamps):
+  - dry-run plan: `PYTHONPATH=src python -m meetingctl.cli backfill --match-calendar --dry-run --json`
+  - apply rename to canonical meeting IDs when matched: `PYTHONPATH=src python -m meetingctl.cli backfill --match-calendar --rename --json`

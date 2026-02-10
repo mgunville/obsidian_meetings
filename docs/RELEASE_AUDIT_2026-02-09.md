@@ -9,8 +9,7 @@
 - No functional stubs remain in `src/meetingctl` command flows.
 - `pass` usages are only in exception-class declarations or test helper paths, not unimplemented product behavior.
 - Queue worker is wired to real pipeline (`transcribe -> summarize -> patch -> convert`).
-- WAV fallback implemented for non-`meeting_id` filenames:
-  - uses newest `*.wav` when `<meeting_id>.wav` is unavailable.
+- Queue payloads can provide explicit `wav_path` to process non-`meeting_id` filenames safely.
 
 ## Contract Verification
 - `meetingctl status --json` contract fields are preserved:

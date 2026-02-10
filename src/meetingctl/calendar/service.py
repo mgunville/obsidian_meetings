@@ -68,20 +68,7 @@ def resolve_now_or_next_event(
     eventkit = eventkit or EventKitBackend()
     jxa = jxa or JXABackend()
 
-    try:
-        events = eventkit.fetch_events()
-        backend = "eventkit"
-        fallback_used = False
-    except BackendUnavailableError:
-        try:
-            events = jxa.fetch_events()
-            backend = "jxa"
-            fallback_used = True
-        except Exception as exc:
-            raise CalendarResolutionError(backend="jxa", reason=str(exc)) from exc
-    except Exception as exc:
-        raise CalendarResolutionError(backend="eventkit", reason=str(exc)) from exc
-
+    events, backend, fallback_used = _fetch_events(eventkit=eventkit, jxa=jxa)
     selected = select_now_or_next(events=events, now=now, window_minutes=window_minutes)
     if selected is None:
         raise CalendarResolutionError(backend=backend, reason="No ongoing/upcoming event in window")
@@ -96,4 +83,70 @@ def resolve_now_or_next_event(
         "platform": _infer_platform(join_url),
         "backend": backend,
         "fallback_used": fallback_used,
+    }
+
+
+def _fetch_events(*, eventkit: EventKitBackend, jxa: JXABackend) -> tuple[list[dict[str, object]], str, bool]:
+    try:
+        events = eventkit.fetch_events()
+        backend = "eventkit"
+        fallback_used = False
+    except BackendUnavailableError:
+        try:
+            events = jxa.fetch_events()
+            backend = "jxa"
+            fallback_used = True
+        except Exception as exc:
+            raise CalendarResolutionError(backend="jxa", reason=str(exc)) from exc
+    except Exception as exc:
+        raise CalendarResolutionError(backend="eventkit", reason=str(exc)) from exc
+    return events, backend, fallback_used
+
+
+def resolve_event_near_timestamp(
+    *,
+    at: datetime,
+    window_minutes: int,
+    eventkit: EventKitBackend | None = None,
+    jxa: JXABackend | None = None,
+) -> dict[str, object] | None:
+    eventkit = eventkit or EventKitBackend()
+    jxa = jxa or JXABackend()
+    events, backend, fallback_used = _fetch_events(eventkit=eventkit, jxa=jxa)
+
+    candidates: list[tuple[float, dict[str, object], datetime, datetime]] = []
+    for event in events:
+        try:
+            start = datetime.fromisoformat(str(event["start"]))
+            end = datetime.fromisoformat(str(event["end"]))
+        except Exception:
+            continue
+        if start <= at <= end:
+            distance_minutes = 0.0
+        else:
+            distance_minutes = abs((start - at).total_seconds()) / 60.0
+        if distance_minutes <= float(max(window_minutes, 0)):
+            candidates.append((distance_minutes, event, start, end))
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda row: (row[0], row[2], str(row[1].get("title", ""))))
+    best_distance = candidates[0][0]
+    best = [candidate for candidate in candidates if abs(candidate[0] - best_distance) < 0.01]
+    if len(best) != 1:
+        return None
+
+    _, selected, _, _ = best[0]
+    join_url = _infer_join_url(selected)
+    return {
+        "title": selected.get("title"),
+        "start": selected.get("start"),
+        "end": selected.get("end"),
+        "calendar_name": selected.get("calendar_name"),
+        "join_url": join_url,
+        "platform": _infer_platform(join_url),
+        "backend": backend,
+        "fallback_used": fallback_used,
+        "match_distance_minutes": round(best_distance, 2),
     }
