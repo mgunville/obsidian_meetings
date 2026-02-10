@@ -11,6 +11,7 @@ def test_registered_commands_are_stable() -> None:
         "patch-note",
         "process-queue",
         "backfill",
+        "ingest-watch",
     ]
 
 

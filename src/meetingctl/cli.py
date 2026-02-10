@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 import json
 import os
 from pathlib import Path
+import time
 from typing import Callable
 
 from meetingctl.audio import convert_wav_to_mp3
@@ -37,7 +38,17 @@ from meetingctl.transcription import WhisperTranscriptionRunner
 
 
 def registered_commands() -> list[str]:
-    return ["start", "stop", "status", "event", "doctor", "patch-note", "process-queue", "backfill"]
+    return [
+        "start",
+        "stop",
+        "status",
+        "event",
+        "doctor",
+        "patch-note",
+        "process-queue",
+        "backfill",
+        "ingest-watch",
+    ]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -77,6 +88,16 @@ def build_parser() -> argparse.ArgumentParser:
     backfill_parser.add_argument("--rename", action="store_true")
     backfill_parser.add_argument("--dry-run", action="store_true")
     backfill_parser.add_argument("--json", action="store_true")
+
+    ingest_parser = sub.add_parser("ingest-watch")
+    ingest_parser.add_argument("--once", action="store_true")
+    ingest_parser.add_argument("--poll-seconds", type=int, default=20)
+    ingest_parser.add_argument("--max-polls", type=int, default=0)
+    ingest_parser.add_argument("--min-age-seconds", type=int, default=15)
+    ingest_parser.add_argument("--match-calendar", action="store_true")
+    ingest_parser.add_argument("--window-minutes", type=int, default=30)
+    ingest_parser.add_argument("--process-now", action="store_true")
+    ingest_parser.add_argument("--json", action="store_true")
 
     event_parser = sub.add_parser("event")
     event_parser.add_argument("--now-or-next", type=int, default=5)
@@ -133,6 +154,14 @@ def _processed_jobs_log_file() -> Path:
     return Path(
         os.environ.get(
             "MEETINGCTL_PROCESSED_JOBS_FILE", "~/.local/state/meetingctl/processed_jobs.jsonl"
+        )
+    ).expanduser()
+
+
+def _ingested_files_log_file() -> Path:
+    return Path(
+        os.environ.get(
+            "MEETINGCTL_INGESTED_FILES_FILE", "~/.local/state/meetingctl/ingested_files.jsonl"
         )
     ).expanduser()
 
@@ -287,6 +316,171 @@ def _default_queue_handler(payload: dict[str, object]) -> None:
 
 def _queue_job_payload(payload: dict[str, object]) -> None:
     _queue_process_trigger()(payload)
+
+
+def _load_ingested_paths(log_file: Path) -> set[str]:
+    if not log_file.exists():
+        return set()
+    seen: set[str] = set()
+    for line in log_file.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        wav_path = payload.get("wav_path")
+        if isinstance(wav_path, str) and wav_path:
+            seen.add(wav_path)
+    return seen
+
+
+def _append_ingested_path(log_file: Path, wav_path: Path, meeting_id: str) -> None:
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+    record = {
+        "wav_path": str(wav_path.resolve()),
+        "meeting_id": meeting_id,
+        "ingested_at": _now_utc().isoformat(),
+    }
+    with log_file.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(record))
+        fh.write("\n")
+
+
+def _ingest_wav_files_once(
+    *,
+    min_age_seconds: int,
+    match_calendar: bool,
+    window_minutes: int,
+    process_now: bool,
+) -> dict[str, object]:
+    cfg = load_config()
+    ingested_log = _ingested_files_log_file()
+    seen = _load_ingested_paths(ingested_log)
+
+    wav_files = sorted(
+        (path.resolve() for path in cfg.recordings_path.glob("*.wav")),
+        key=lambda path: path.stat().st_mtime,
+    )
+    discovered_wav = len(wav_files)
+    queued_jobs = 0
+    processed_jobs = 0
+    skipped_already_ingested = 0
+    skipped_too_new = 0
+    matched_calendar = 0
+    unmatched_calendar = 0
+    failed_jobs = 0
+    errors: list[dict[str, str]] = []
+
+    now_ts = time.time()
+    for wav in wav_files:
+        wav_key = str(wav.resolve())
+        if wav_key in seen:
+            skipped_already_ingested += 1
+            continue
+        age_seconds = now_ts - wav.stat().st_mtime
+        if age_seconds < max(min_age_seconds, 0):
+            skipped_too_new += 1
+            continue
+
+        try:
+            inferred_start, _ = infer_datetime_from_recording_path(wav)
+            matched_event: dict[str, object] | None = None
+            if match_calendar:
+                matched_event = resolve_event_near_timestamp(
+                    at=inferred_start,
+                    window_minutes=max(window_minutes, 0),
+                )
+                if matched_event:
+                    matched_calendar += 1
+                else:
+                    unmatched_calendar += 1
+
+            note_info = (
+                create_note_from_event(matched_event)
+                if matched_event
+                else create_backfill_note_for_recording(recording_path=wav)
+            )
+            payload = {
+                "meeting_id": note_info["meeting_id"],
+                "note_path": note_info["note_path"],
+                "wav_path": str(wav),
+            }
+            if process_now:
+                _default_queue_handler(payload)
+                processed_jobs += 1
+            else:
+                _queue_job_payload(payload)
+                queued_jobs += 1
+            _append_ingested_path(ingested_log, wav, note_info["meeting_id"])
+            seen.add(wav_key)
+        except Exception as exc:
+            failed_jobs += 1
+            errors.append({"recording": str(wav), "error": str(exc)})
+
+    return {
+        "discovered_wav": discovered_wav,
+        "queued_jobs": queued_jobs,
+        "processed_jobs": processed_jobs,
+        "failed_jobs": failed_jobs,
+        "skipped_already_ingested": skipped_already_ingested,
+        "skipped_too_new": skipped_too_new,
+        "match_calendar": match_calendar,
+        "matched_calendar": matched_calendar,
+        "unmatched_calendar": unmatched_calendar,
+        "process_now": process_now,
+        "min_age_seconds": min_age_seconds,
+        "errors": errors,
+    }
+
+
+def _run_ingest_watch(
+    *,
+    once: bool,
+    poll_seconds: int,
+    max_polls: int,
+    min_age_seconds: int,
+    match_calendar: bool,
+    window_minutes: int,
+    process_now: bool,
+) -> dict[str, object]:
+    polls = 0
+    aggregate = {
+        "polls": 0,
+        "queued_jobs": 0,
+        "processed_jobs": 0,
+        "failed_jobs": 0,
+        "skipped_already_ingested": 0,
+        "skipped_too_new": 0,
+        "matched_calendar": 0,
+        "unmatched_calendar": 0,
+        "last_poll": {},
+    }
+    while True:
+        poll_result = _ingest_wav_files_once(
+            min_age_seconds=min_age_seconds,
+            match_calendar=match_calendar,
+            window_minutes=window_minutes,
+            process_now=process_now,
+        )
+        polls += 1
+        aggregate["polls"] = polls
+        aggregate["queued_jobs"] += int(poll_result["queued_jobs"])
+        aggregate["processed_jobs"] += int(poll_result["processed_jobs"])
+        aggregate["failed_jobs"] += int(poll_result["failed_jobs"])
+        aggregate["skipped_already_ingested"] += int(poll_result["skipped_already_ingested"])
+        aggregate["skipped_too_new"] += int(poll_result["skipped_too_new"])
+        aggregate["matched_calendar"] += int(poll_result["matched_calendar"])
+        aggregate["unmatched_calendar"] += int(poll_result["unmatched_calendar"])
+        aggregate["last_poll"] = poll_result
+
+        if once:
+            break
+        if max_polls > 0 and polls >= max_polls:
+            break
+        time.sleep(max(poll_seconds, 1))
+    return aggregate
 
 
 def _backfill_recordings(
@@ -558,6 +752,22 @@ def main() -> int:
                 window_minutes=args.window_minutes,
                 rename=args.rename,
                 dry_run=args.dry_run,
+            )
+        except Exception as exc:
+            _print_payload({"error": str(exc)}, args.json)
+            return 2
+        _print_payload(payload, args.json)
+        return 0
+    if args.command == "ingest-watch":
+        try:
+            payload = _run_ingest_watch(
+                once=args.once,
+                poll_seconds=args.poll_seconds,
+                max_polls=args.max_polls,
+                min_age_seconds=max(args.min_age_seconds, 0),
+                match_calendar=args.match_calendar,
+                window_minutes=args.window_minutes,
+                process_now=args.process_now,
             )
         except Exception as exc:
             _print_payload({"error": str(exc)}, args.json)
