@@ -16,7 +16,8 @@ Minimum required:
 - `RECORDINGS_PATH=~/Notes/recordings`
 
 Optional (already documented in `.env.example`):
-- `DEFAULT_MEETINGS_FOLDER=meetings`
+- `DEFAULT_MEETINGS_FOLDER=_Work/AHEAD/Meetings`
+- `MEETINGCTL_NOTE_TEMPLATE_PATH=~/Notes/notes-vault/System/Templates/icalBuddy/Meeting.md`
 - `MEETINGCTL_STATE_FILE=~/.local/state/meetingctl/current.json`
 - `MEETINGCTL_PROCESS_QUEUE_FILE=~/.local/state/meetingctl/process_queue.jsonl`
 - `MEETINGCTL_PROCESSED_JOBS_FILE=~/.local/state/meetingctl/processed_jobs.jsonl`
@@ -74,7 +75,19 @@ Permission probe:
 - Install CLI/runtime dependencies with `bash install.sh`.
 - Ensure a transcription backend is available on PATH:
   - `whisper` (default in `meetingctl.transcription.WhisperTranscriptionRunner`), or
-  - set up alternate wrapper binaries/scripts and adjust runtime invocation as needed.
+  - `whisperx` (optional high-detail mode).
+- Bootstrap local WhisperX model storage (avoids runtime Python SSL/HuggingFace download issues):
+  - Link existing local model if found:
+    - `bash scripts/bootstrap_whisperx_model.sh --link-only`
+  - Download model with curl and link into project:
+    - `bash scripts/bootstrap_whisperx_model.sh`
+  - Project model link path:
+    - `config/models/whisperx/faster-whisper-base`
+- WhisperX runtime knobs (`.env`):
+  - `MEETINGCTL_TRANSCRIPTION_BACKEND=whisperx`
+  - `MEETINGCTL_WHISPERX_MODEL_PATH=/absolute/path/to/config/models/whisperx/faster-whisper-base`
+  - `MEETINGCTL_WHISPERX_VAD_METHOD=silero` (recommended while pyannote/torch compatibility is unstable)
+  - `MEETINGCTL_TRANSCRIPTION_FALLBACK_TO_WHISPER=1`
 - Optional dry-run controls for local pipeline validation:
   - `MEETINGCTL_PROCESSING_TRANSCRIBE_DRY_RUN=1`
   - `MEETINGCTL_PROCESSING_SUMMARY_JSON='{"minutes":"...","decisions":[],"action_items":[]}'`

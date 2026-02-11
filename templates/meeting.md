@@ -9,8 +9,17 @@ platform: "{{ platform }}"
 join_url: "{{ join_url }}"
 recording_wav: "{{ recording_wav_rel }}"
 recording_mp3: ""
+transcript_txt: ""
+transcript_srt: ""
+transcript_json: ""
 transcript_status: "pending"
 summary_status: "pending"
+ai_summary_model: ""
+created_via: "meetingctl"
+tags:
+  - work/meeting
+  - ahead
+  - meetingctl
 ---
 
 # {{ title }}

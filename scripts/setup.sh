@@ -24,6 +24,7 @@ if [ ! -f .env ] && [ -f .env.example ]; then
 fi
 
 chmod +x scripts/eventkit_fetch.py
+chmod +x scripts/bootstrap_whisperx_model.sh
 
 if command -v ffmpeg >/dev/null 2>&1; then
   echo "ffmpeg check: OK"
@@ -35,6 +36,12 @@ if [ -x scripts/eventkit_fetch.py ]; then
   echo "EventKit helper check: OK (scripts/eventkit_fetch.py executable)"
 else
   echo "EventKit helper check: FAILED (scripts/eventkit_fetch.py not executable)"
+fi
+
+if scripts/bootstrap_whisperx_model.sh --link-only >/dev/null 2>&1; then
+  echo "WhisperX model link check: OK"
+else
+  echo "WhisperX model link check: not linked (run scripts/bootstrap_whisperx_model.sh to download/link)"
 fi
 
 if [ -f .env ]; then

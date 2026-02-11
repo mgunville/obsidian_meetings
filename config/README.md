@@ -10,6 +10,8 @@ This folder stores runtime integration assets that should stay with the project.
   - Audio Hijack control scripts (`*.ahcommand` / `*.ahscript`) for start/stop automation.
 - `config/audio_hijack/sessions/`
   - Audio Hijack session exports (`*.ah4session`) used for environment setup and backup.
+- `config/models/whisperx/`
+  - Local WhisperX model symlink/storage (for offline/runtime-stable transcription).
 
 ## Notes
 

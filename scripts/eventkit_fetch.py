@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta
 import sys
 import threading
 import time
+from zoneinfo import ZoneInfo
 
 try:
     from EventKit import EKEventStore, EKEntityTypeEvent
@@ -16,6 +18,17 @@ except Exception as exc:  # pragma: no cover - runtime integration path
 
 def main() -> int:
     request_access = "--request-access" in sys.argv
+    today_only = "--today" in sys.argv
+    start_arg = ""
+    end_arg = ""
+    if "--start" in sys.argv:
+        idx = sys.argv.index("--start")
+        if idx + 1 < len(sys.argv):
+            start_arg = sys.argv[idx + 1]
+    if "--end" in sys.argv:
+        idx = sys.argv.index("--end")
+        if idx + 1 < len(sys.argv):
+            end_arg = sys.argv[idx + 1]
     auth_status = EKEventStore.authorizationStatusForEntityType_(EKEntityTypeEvent)
     if auth_status in (1, 2):
         print("Calendar permission denied or restricted.", file=sys.stderr)
@@ -46,8 +59,25 @@ def main() -> int:
             return 2
 
     now_ns = NSDate.date()
-    start_date = now_ns.dateByAddingTimeInterval_(-3600)
-    end_date = now_ns.dateByAddingTimeInterval_(7 * 24 * 3600)
+    if start_arg and end_arg:
+        try:
+            start_dt = datetime.fromisoformat(start_arg.replace("Z", "+00:00"))
+            end_dt = datetime.fromisoformat(end_arg.replace("Z", "+00:00"))
+        except ValueError:
+            print("Invalid --start/--end. Expected ISO-8601 datetime.", file=sys.stderr)
+            return 2
+        start_date = NSDate.dateWithTimeIntervalSince1970_(start_dt.timestamp())
+        end_date = NSDate.dateWithTimeIntervalSince1970_(end_dt.timestamp())
+    elif today_only:
+        local_tz = datetime.now().astimezone().tzinfo or ZoneInfo("UTC")
+        local_now = datetime.now(local_tz)
+        local_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+        local_end = local_start + timedelta(days=1)
+        start_date = NSDate.dateWithTimeIntervalSince1970_(local_start.timestamp())
+        end_date = NSDate.dateWithTimeIntervalSince1970_(local_end.timestamp())
+    else:
+        start_date = now_ns.dateByAddingTimeInterval_(-3600)
+        end_date = now_ns.dateByAddingTimeInterval_(7 * 24 * 3600)
     predicate = store.predicateForEventsWithStartDate_endDate_calendars_(
         start_date, end_date, None
     )

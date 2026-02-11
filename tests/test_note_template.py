@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from meetingctl.note.template import render_meeting_note
 
 
@@ -60,3 +62,12 @@ def test_template_render_contains_managed_sentinels() -> None:
         "<!-- TRANSCRIPT_END -->",
     ]:
         assert marker in output
+
+
+def test_template_render_uses_env_override_template(monkeypatch, tmp_path: Path) -> None:
+    custom = tmp_path / "meeting.md"
+    custom.write_text("title={{ title }}\nmeeting_id={{ meeting_id }}\n")
+    monkeypatch.setenv("MEETINGCTL_NOTE_TEMPLATE_PATH", str(custom))
+    output = render_meeting_note({"title": "X", "meeting_id": "m-1"})
+    assert "title=X" in output
+    assert "meeting_id=m-1" in output

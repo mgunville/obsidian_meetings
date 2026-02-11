@@ -21,6 +21,17 @@ def _note_directory() -> Path:
     return note_dir
 
 
+def _local_tz():
+    return datetime.now().astimezone().tzinfo or UTC
+
+
+def _to_local_naive(iso_value: str) -> datetime:
+    dt = datetime.fromisoformat(iso_value)
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(_local_tz())
+    return dt.replace(tzinfo=None)
+
+
 def _write_note(
     *,
     title: str,
@@ -35,7 +46,7 @@ def _write_note(
     meeting_id: str,
 ) -> dict[str, str]:
     note_dir = _note_directory()
-    start_dt = datetime.fromisoformat(start_iso).replace(tzinfo=None)
+    start_dt = _to_local_naive(start_iso)
     filename = build_note_filename(start_dt=start_dt, title=title, meeting_id=meeting_id)
     note_path = ensure_collision_safe_path(note_dir / filename)
     rendered = render_meeting_note(
@@ -64,7 +75,7 @@ def preview_note_from_event(
     title = str(event.get("title", "Untitled Meeting"))
     start_iso = str(event.get("start"))
     resolved_meeting_id = meeting_id or generate_meeting_id(title=title, start_iso=start_iso)
-    start_dt = datetime.fromisoformat(start_iso).replace(tzinfo=None)
+    start_dt = _to_local_naive(start_iso)
     filename = build_note_filename(start_dt=start_dt, title=title, meeting_id=resolved_meeting_id)
     note_path = ensure_collision_safe_path(_note_directory() / filename)
     return {"meeting_id": resolved_meeting_id, "note_path": str(note_path)}
@@ -126,18 +137,19 @@ def create_adhoc_note(
 
 
 def infer_datetime_from_recording_path(path: Path) -> tuple[datetime, str]:
+    tz = _local_tz()
     match = re.search(r"(\d{8})[_-](\d{4})", path.stem)
     if match:
         stamp = f"{match.group(1)}{match.group(2)}"
         try:
-            return datetime.strptime(stamp, "%Y%m%d%H%M").replace(tzinfo=UTC), "filename"
+            return datetime.strptime(stamp, "%Y%m%d%H%M").replace(tzinfo=tz), "filename"
         except ValueError:
             pass
     stat = path.stat()
     birthtime = getattr(stat, "st_birthtime", None)
     if isinstance(birthtime, (float, int)) and birthtime > 0:
-        return datetime.fromtimestamp(float(birthtime), tz=UTC), "birthtime"
-    return datetime.fromtimestamp(stat.st_mtime, tz=UTC), "mtime"
+        return datetime.fromtimestamp(float(birthtime), tz=tz), "birthtime"
+    return datetime.fromtimestamp(stat.st_mtime, tz=tz), "mtime"
 
 
 def create_backfill_note_for_recording(

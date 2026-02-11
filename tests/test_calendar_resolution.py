@@ -101,6 +101,40 @@ def test_resolve_event_near_timestamp_selects_nearest_match() -> None:
     assert payload["platform"] == "zoom"
 
 
+def test_resolve_event_near_timestamp_fetches_local_day_window() -> None:
+    at = datetime(2026, 2, 8, 10, 5, tzinfo=UTC)
+    captured: dict[str, object] = {}
+
+    def _loader(*, start=None, end=None):
+        captured["start"] = start
+        captured["end"] = end
+        return [
+            {
+                "title": "Near Meeting",
+                "start": "2026-02-08T10:08:00+00:00",
+                "end": "2026-02-08T10:30:00+00:00",
+                "calendar_name": "Work",
+                "location": "",
+                "notes": "",
+                "url": "",
+            }
+        ]
+
+    eventkit = EventKitBackend(loader=_loader)
+    jxa = JXABackend(loader=lambda: [])
+
+    payload = resolve_event_near_timestamp(at=at, window_minutes=30, eventkit=eventkit, jxa=jxa)
+
+    assert payload is not None
+    assert isinstance(captured["start"], datetime)
+    assert isinstance(captured["end"], datetime)
+    assert captured["start"].hour == 0
+    assert captured["start"].minute == 0
+    assert captured["end"].hour == 0
+    assert captured["end"].minute == 0
+    assert (captured["end"] - captured["start"]).total_seconds() == 24 * 60 * 60
+
+
 def test_resolve_event_near_timestamp_returns_none_when_ambiguous() -> None:
     at = datetime(2026, 2, 8, 10, 0, tzinfo=UTC)
     eventkit = EventKitBackend(
@@ -119,6 +153,28 @@ def test_resolve_event_near_timestamp_returns_none_when_ambiguous() -> None:
     )
     jxa = JXABackend(loader=lambda: [])
     assert resolve_event_near_timestamp(at=at, window_minutes=30, eventkit=eventkit, jxa=jxa) is None
+
+
+def test_resolve_event_near_timestamp_boundary_prefers_new_meeting() -> None:
+    at = datetime(2026, 2, 8, 11, 0, tzinfo=UTC)
+    eventkit = EventKitBackend(
+        loader=lambda: [
+            {
+                "title": "Previous",
+                "start": "2026-02-08T10:00:00+00:00",
+                "end": "2026-02-08T11:00:00+00:00",
+            },
+            {
+                "title": "Next",
+                "start": "2026-02-08T11:00:00+00:00",
+                "end": "2026-02-08T11:30:00+00:00",
+            },
+        ]
+    )
+    jxa = JXABackend(loader=lambda: [])
+    payload = resolve_event_near_timestamp(at=at, window_minutes=90, eventkit=eventkit, jxa=jxa)
+    assert payload is not None
+    assert payload["title"] == "Next"
 
 
 def test_resolution_error_includes_backend_and_doctor_hint() -> None:
@@ -281,6 +337,26 @@ def test_eventkit_backend_uses_helper_when_configured(mock_run: MagicMock, monke
     assert events[0]["end"] == "2026-02-08T10:30:00+00:00"
     call_args = mock_run.call_args[0][0]
     assert Path(helper_path).resolve().as_posix() in [Path(arg).as_posix() for arg in call_args]
+
+
+@patch("meetingctl.calendar.backends.subprocess.run")
+def test_eventkit_backend_passes_range_to_helper(mock_run: MagicMock, monkeypatch) -> None:
+    mock_run.return_value = MagicMock(
+        returncode=0,
+        stdout="[]",
+        stderr="",
+    )
+    helper_path = "/tmp/eventkit_fetch.py"
+    monkeypatch.setenv("MEETINGCTL_EVENTKIT_HELPER", helper_path)
+    backend = EventKitBackend()
+    with patch("meetingctl.calendar.backends.Path.exists", return_value=True):
+        backend.fetch_events(
+            start=datetime(2026, 2, 8, 0, 0, tzinfo=UTC),
+            end=datetime(2026, 2, 9, 0, 0, tzinfo=UTC),
+        )
+    call_args = mock_run.call_args[0][0]
+    assert "--start" in call_args
+    assert "--end" in call_args
 
 
 def test_eventkit_backend_rejects_relative_helper_path(monkeypatch) -> None:

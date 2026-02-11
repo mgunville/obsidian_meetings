@@ -34,7 +34,7 @@ from meetingctl.recording import AudioHijackRecorder
 from meetingctl.runtime_state import RuntimeStateStore
 from meetingctl.summary_client import generate_summary
 from meetingctl.summary_parser import SummaryParseError, parse_summary_json, summary_to_patch_regions
-from meetingctl.transcription import WhisperTranscriptionRunner
+from meetingctl.transcription import TranscriptionRunner, create_transcription_runner
 
 
 def registered_commands() -> list[str]:
@@ -240,7 +240,7 @@ def _summary_from_transcript(transcript_path: Path) -> dict[str, object]:
 
 
 def _transcribe_for_processing(
-    transcript_runner: WhisperTranscriptionRunner,
+    transcript_runner: TranscriptionRunner,
     wav_path: Path,
     transcript_path: Path,
 ) -> Path:
@@ -265,10 +265,14 @@ def _convert_for_processing(wav_path: Path, mp3_path: Path) -> Path:
 
 def _artifact_status_region(result: ProcessResult) -> str:
     transcript_path = result.transcript_path
+    transcript_srt_path = transcript_path.with_suffix(".srt")
+    transcript_json_path = transcript_path.with_suffix(".json")
     mp3_path = result.mp3_path
     return "\n".join(
         [
             f"- transcript_path: {transcript_path}",
+            f"- transcript_srt_path: {transcript_srt_path}",
+            f"- transcript_json_path: {transcript_json_path}",
             f"- mp3_path: {mp3_path}",
             "- status: complete",
         ]
@@ -277,7 +281,7 @@ def _artifact_status_region(result: ProcessResult) -> str:
 
 def _default_queue_handler(payload: dict[str, object]) -> None:
     context = _process_context_from_payload(payload)
-    transcript_runner = WhisperTranscriptionRunner()
+    transcript_runner = create_transcription_runner()
     result = run_processing(
         context=context,
         transcribe=lambda wav_path, transcript_path: _transcribe_for_processing(

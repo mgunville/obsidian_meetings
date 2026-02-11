@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 import re
 
 from meetingctl.calendar.backends import BackendUnavailableError, EventKitBackend, JXABackend
@@ -87,15 +87,25 @@ def resolve_now_or_next_event(
 
 
 def _fetch_events(*, eventkit: EventKitBackend, jxa: JXABackend) -> tuple[list[dict[str, object]], str, bool]:
+    return _fetch_events_in_range(eventkit=eventkit, jxa=jxa, start=None, end=None)
+
+
+def _fetch_events_in_range(
+    *,
+    eventkit: EventKitBackend,
+    jxa: JXABackend,
+    start: datetime | None,
+    end: datetime | None,
+) -> tuple[list[dict[str, object]], str, bool]:
     try:
-        events = eventkit.fetch_events()
+        events = eventkit.fetch_events(start=start, end=end)
         backend = "eventkit"
         fallback_used = False
         # Some runtimes return an empty EventKit result despite calendar data being
         # available via JXA. Prefer JXA only when it can provide at least one event.
         if not events:
             try:
-                jxa_events = jxa.fetch_events()
+                jxa_events = jxa.fetch_events(start=start, end=end)
                 if jxa_events:
                     events = jxa_events
                     backend = "jxa"
@@ -105,7 +115,7 @@ def _fetch_events(*, eventkit: EventKitBackend, jxa: JXABackend) -> tuple[list[d
                 pass
     except BackendUnavailableError:
         try:
-            events = jxa.fetch_events()
+            events = jxa.fetch_events(start=start, end=end)
             backend = "jxa"
             fallback_used = True
         except Exception as exc:
@@ -124,7 +134,15 @@ def resolve_event_near_timestamp(
 ) -> dict[str, object] | None:
     eventkit = eventkit or EventKitBackend()
     jxa = jxa or JXABackend()
-    events, backend, fallback_used = _fetch_events(eventkit=eventkit, jxa=jxa)
+    local_at = at.astimezone()
+    day_start = local_at.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_end = day_start + timedelta(days=1)
+    events, backend, fallback_used = _fetch_events_in_range(
+        eventkit=eventkit,
+        jxa=jxa,
+        start=day_start,
+        end=day_end,
+    )
 
     candidates: list[tuple[float, dict[str, object], datetime, datetime]] = []
     for event in events:
@@ -133,7 +151,9 @@ def resolve_event_near_timestamp(
             end = datetime.fromisoformat(str(event["end"]))
         except Exception:
             continue
-        if start <= at <= end:
+        # Treat end as exclusive to avoid ambiguity when one meeting ends exactly
+        # as another starts (prefer the newly-started meeting at boundary times).
+        if start <= at < end:
             distance_minutes = 0.0
         else:
             distance_minutes = abs((start - at).total_seconds()) / 60.0

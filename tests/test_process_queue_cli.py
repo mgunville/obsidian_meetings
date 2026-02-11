@@ -51,7 +51,7 @@ def test_process_queue_cli_runs_real_pipeline_success(monkeypatch, tmp_path: Pat
             transcript_path.write_text("transcript")
             return transcript_path
 
-    monkeypatch.setattr("meetingctl.cli.WhisperTranscriptionRunner", lambda: FakeRunner())
+    monkeypatch.setattr("meetingctl.cli.create_transcription_runner", lambda: FakeRunner())
     monkeypatch.setattr(
         "meetingctl.cli.generate_summary",
         lambda transcript, api_key: {

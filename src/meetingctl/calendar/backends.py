@@ -24,10 +24,18 @@ class BackendUnavailableError(RuntimeError):
 class EventKitBackend:
     backend_name = "eventkit"
 
-    def __init__(self, loader: Callable[[], list[dict[str, object]]] | None = None) -> None:
+    def __init__(
+        self,
+        loader: Callable[..., list[dict[str, object]]] | None = None,
+    ) -> None:
         self._loader = loader or self._default_loader
 
-    def _default_loader(self) -> list[dict[str, object]]:
+    def _default_loader(
+        self,
+        *,
+        start: datetime | None = None,
+        end: datetime | None = None,
+    ) -> list[dict[str, object]]:
         if os.environ.get("MEETINGCTL_EVENTKIT_UNAVAILABLE") == "1":
             raise BackendUnavailableError("EventKit backend unavailable on this machine.")
 
@@ -41,13 +49,13 @@ class EventKitBackend:
 
         helper = os.environ.get("MEETINGCTL_EVENTKIT_HELPER")
         if helper:
-            return _run_eventkit_helper(Path(helper).expanduser())
+            return _run_eventkit_helper(Path(helper).expanduser(), start=start, end=end)
 
         helper_mode = os.environ.get("MEETINGCTL_EVENTKIT_HELPER_MODE", "auto").lower()
         default_helper = _default_eventkit_helper_path()
         if helper_mode in {"auto", "helper"} and default_helper.exists():
             try:
-                return _run_eventkit_helper(default_helper)
+                return _run_eventkit_helper(default_helper, start=start, end=end)
             except Exception:
                 if helper_mode == "helper":
                     raise
@@ -75,9 +83,13 @@ class EventKitBackend:
 
         # Query events for the next 7 days
         # Use NSDate instead of Python datetime to avoid timezone issues with PyObjC
-        now_ns = NSDate.date()
-        start_date = now_ns.dateByAddingTimeInterval_(-3600)  # 1 hour ago
-        end_date = now_ns.dateByAddingTimeInterval_(7 * 24 * 3600)  # 7 days later
+        if start and end:
+            start_date = NSDate.dateWithTimeIntervalSince1970_(start.timestamp())
+            end_date = NSDate.dateWithTimeIntervalSince1970_(end.timestamp())
+        else:
+            now_ns = NSDate.date()
+            start_date = now_ns.dateByAddingTimeInterval_(-3600)  # 1 hour ago
+            end_date = now_ns.dateByAddingTimeInterval_(7 * 24 * 3600)  # 7 days later
 
         # Create predicate for date range
         predicate = store.predicateForEventsWithStartDate_endDate_calendars_(
@@ -112,17 +124,34 @@ class EventKitBackend:
 
         return normalized
 
-    def fetch_events(self) -> list[dict[str, object]]:
-        return self._loader()
+    def fetch_events(
+        self,
+        *,
+        start: datetime | None = None,
+        end: datetime | None = None,
+    ) -> list[dict[str, object]]:
+        try:
+            return self._loader(start=start, end=end)
+        except TypeError:
+            # Backward compatible path for tests/injected loaders that do not accept kwargs.
+            return self._loader()
 
 
 class JXABackend:
     backend_name = "jxa"
 
-    def __init__(self, loader: Callable[[], list[dict[str, object]]] | None = None) -> None:
+    def __init__(
+        self,
+        loader: Callable[..., list[dict[str, object]]] | None = None,
+    ) -> None:
         self._loader = loader or self._default_loader
 
-    def _default_loader(self) -> list[dict[str, object]]:
+    def _default_loader(
+        self,
+        *,
+        start: datetime | None = None,
+        end: datetime | None = None,
+    ) -> list[dict[str, object]]:
         if os.environ.get("MEETINGCTL_JXA_UNAVAILABLE") == "1":
             raise RuntimeError("JXA backend unavailable on this machine.")
 
@@ -144,20 +173,21 @@ class JXABackend:
             command = ["osascript", "-l", "JavaScript", jxa_script_path]
         else:
             # JXA script to fetch calendar events
+            start_ms = int(start.timestamp() * 1000) if start else "(new Date().getTime() - 3600000)"
+            end_ms = int(end.timestamp() * 1000) if end else "(new Date().getTime() + 7 * 24 * 3600000)"
             jxa_script = """
         var app = Application('Calendar');
         var cals = app.calendars();
-        var now = new Date();
-        var oneHourAgo = new Date(now.getTime() - 3600000);
-        var sevenDaysLater = new Date(now.getTime() + 7 * 24 * 3600000);
+        var windowStart = new Date(%s);
+        var windowEnd = new Date(%s);
 
         var events = [];
         for (var i = 0; i < cals.length; i++) {
             var cal = cals[i];
             var calEvents = cal.events.whose({
                 _and: [
-                    {startDate: {_greaterThanEquals: oneHourAgo}},
-                    {startDate: {_lessThanEquals: sevenDaysLater}}
+                    {startDate: {_greaterThanEquals: windowStart}},
+                    {startDate: {_lessThanEquals: windowEnd}}
                 ]
             })();
 
@@ -174,7 +204,7 @@ class JXABackend:
             }
         }
         JSON.stringify(events);
-            """
+            """ % (start_ms, end_ms)
             command = ["osascript", "-l", "JavaScript", "-e", jxa_script]
 
         timeout_seconds = float(os.environ.get("MEETINGCTL_JXA_TIMEOUT_SECONDS", "30"))
@@ -221,11 +251,24 @@ class JXABackend:
                 f"Failed to parse JXA output. Run `meetingctl doctor` for diagnostics."
             ) from exc
 
-    def fetch_events(self) -> list[dict[str, object]]:
-        return self._loader()
+    def fetch_events(
+        self,
+        *,
+        start: datetime | None = None,
+        end: datetime | None = None,
+    ) -> list[dict[str, object]]:
+        try:
+            return self._loader(start=start, end=end)
+        except TypeError:
+            return self._loader()
 
 
-def _run_eventkit_helper(helper_path: Path) -> list[dict[str, object]]:
+def _run_eventkit_helper(
+    helper_path: Path,
+    *,
+    start: datetime | None = None,
+    end: datetime | None = None,
+) -> list[dict[str, object]]:
     if not helper_path.is_absolute():
         raise BackendUnavailableError(
             "EventKit helper path must be absolute for safety."
@@ -233,8 +276,13 @@ def _run_eventkit_helper(helper_path: Path) -> list[dict[str, object]]:
     helper_path = helper_path.resolve()
     if not helper_path.exists():
         raise BackendUnavailableError(f"EventKit helper not found: {helper_path}")
+    command = [sys.executable, str(helper_path)]
+    if start:
+        command.extend(["--start", start.isoformat()])
+    if end:
+        command.extend(["--end", end.isoformat()])
     result = subprocess.run(
-        [sys.executable, str(helper_path)],
+        command,
         capture_output=True,
         text=True,
         timeout=15,

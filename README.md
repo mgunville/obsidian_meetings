@@ -16,6 +16,7 @@ Install separately:
 - Python 3.11+
 - ffmpeg (`brew install ffmpeg`)
 - Optional transcription engine binaries/models
+  - WhisperX model bootstrap helper: `bash scripts/bootstrap_whisperx_model.sh`
 
 ## Quick Start (Developers)
 1. Bootstrap environment:
