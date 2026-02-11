@@ -8,6 +8,7 @@ Use this file as the top-level map for project documentation.
 
 - `docs/OUTSTANDING_TASKS.md`: canonical active task list and blockers.
 - `docs/SETUP_AND_DEPENDENCIES.md`: machine setup and runtime prerequisites.
+- `docs/HAZEL_SETUP.md`: file-triggered ingest automation setup.
 - `docs/RELEASE_AUDIT_2026-02-09.md`: latest release readiness audit baseline.
 - `docs/TDD_AND_DOD.md`: engineering quality gates and definition of done.
 - `docs/WORKING_CHARTER.md`: day-to-day operating rules.

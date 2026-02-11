@@ -110,3 +110,5 @@ Permission probe:
 - It runs one ingest pass (`ingest-watch --once --match-calendar`) followed by queue processing.
 - Recommended trigger:
   - New `.wav` in `RECORDINGS_PATH` older than `MEETINGCTL_INGEST_MIN_AGE_SECONDS`.
+- Full Hazel rule details:
+  - `docs/HAZEL_SETUP.md`

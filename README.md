@@ -53,4 +53,5 @@ Install separately:
 - `docs/DOCS_INDEX.md` (canonical docs entrypoint)
 - `docs/OUTSTANDING_TASKS.md` (single active task list)
 - `docs/SETUP_AND_DEPENDENCIES.md`
+- `docs/HAZEL_SETUP.md`
 - `docs/TDD_AND_DOD.md`
