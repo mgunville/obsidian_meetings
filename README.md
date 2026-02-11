@@ -40,6 +40,10 @@ Install separately:
   - preview only: `PYTHONPATH=src python -m meetingctl.cli backfill --match-calendar --dry-run --json`
   - with safe rename to canonical meeting IDs: `PYTHONPATH=src python -m meetingctl.cli backfill --match-calendar --rename --json`
 
+## Automation Command
+- For Hazel/Keyboard Maestro file-driven automation, run:
+  - `bash scripts/run_ingest_once.sh`
+
 ## Working Agreements
 - TDD: write/adjust tests first for each story.
 - YAGNI: implement only what a story needs.

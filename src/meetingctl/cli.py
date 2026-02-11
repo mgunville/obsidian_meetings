@@ -51,6 +51,21 @@ def registered_commands() -> list[str]:
     ]
 
 
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
+def _env_str(name: str, default: str) -> str:
+    raw = os.environ.get(name, "").strip()
+    return raw or default
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="meetingctl")
     sub = parser.add_subparsers(dest="command")
@@ -60,7 +75,11 @@ def build_parser() -> argparse.ArgumentParser:
     start_parser.add_argument("--title")
     start_parser.add_argument("--platform", default="meet")
     start_parser.add_argument("--note-path")
-    start_parser.add_argument("--window-minutes", type=int, default=5)
+    start_parser.add_argument(
+        "--window-minutes",
+        type=int,
+        default=_env_int("MEETINGCTL_START_WINDOW_MINUTES", 5),
+    )
     start_parser.add_argument("--json", action="store_true")
 
     stop_parser = sub.add_parser("stop")
@@ -80,11 +99,18 @@ def build_parser() -> argparse.ArgumentParser:
     process_queue_parser.add_argument("--json", action="store_true")
 
     backfill_parser = sub.add_parser("backfill")
-    backfill_parser.add_argument("--extensions", default="wav")
+    backfill_parser.add_argument(
+        "--extensions",
+        default=_env_str("MEETINGCTL_BACKFILL_EXTENSIONS", "wav"),
+    )
     backfill_parser.add_argument("--max-files", type=int, default=0)
     backfill_parser.add_argument("--process-now", action="store_true")
     backfill_parser.add_argument("--match-calendar", action="store_true")
-    backfill_parser.add_argument("--window-minutes", type=int, default=30)
+    backfill_parser.add_argument(
+        "--window-minutes",
+        type=int,
+        default=_env_int("MEETINGCTL_MATCH_WINDOW_MINUTES", 30),
+    )
     backfill_parser.add_argument("--rename", action="store_true")
     backfill_parser.add_argument("--dry-run", action="store_true")
     backfill_parser.add_argument("--json", action="store_true")
@@ -93,9 +119,17 @@ def build_parser() -> argparse.ArgumentParser:
     ingest_parser.add_argument("--once", action="store_true")
     ingest_parser.add_argument("--poll-seconds", type=int, default=20)
     ingest_parser.add_argument("--max-polls", type=int, default=0)
-    ingest_parser.add_argument("--min-age-seconds", type=int, default=15)
+    ingest_parser.add_argument(
+        "--min-age-seconds",
+        type=int,
+        default=_env_int("MEETINGCTL_INGEST_MIN_AGE_SECONDS", 15),
+    )
     ingest_parser.add_argument("--match-calendar", action="store_true")
-    ingest_parser.add_argument("--window-minutes", type=int, default=30)
+    ingest_parser.add_argument(
+        "--window-minutes",
+        type=int,
+        default=_env_int("MEETINGCTL_MATCH_WINDOW_MINUTES", 30),
+    )
     ingest_parser.add_argument("--process-now", action="store_true")
     ingest_parser.add_argument("--json", action="store_true")
 

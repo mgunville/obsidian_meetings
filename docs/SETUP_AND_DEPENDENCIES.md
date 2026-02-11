@@ -18,6 +18,9 @@ Minimum required:
 Optional (already documented in `.env.example`):
 - `DEFAULT_MEETINGS_FOLDER=_Work/AHEAD/Meetings`
 - `MEETINGCTL_NOTE_TEMPLATE_PATH=~/Notes/notes-vault/System/Templates/icalBuddy/Meeting.md`
+- `MEETINGCTL_MATCH_WINDOW_MINUTES=30`
+- `MEETINGCTL_INGEST_MIN_AGE_SECONDS=15`
+- `MEETINGCTL_BACKFILL_EXTENSIONS=wav`
 - `MEETINGCTL_STATE_FILE=~/.local/state/meetingctl/current.json`
 - `MEETINGCTL_PROCESS_QUEUE_FILE=~/.local/state/meetingctl/process_queue.jsonl`
 - `MEETINGCTL_PROCESSED_JOBS_FILE=~/.local/state/meetingctl/processed_jobs.jsonl`
@@ -101,3 +104,9 @@ Permission probe:
 - Calendar-assisted association (filename `yyyymmdd_hhmm` first, then file timestamps):
   - dry-run plan: `PYTHONPATH=src python -m meetingctl.cli backfill --match-calendar --dry-run --json`
   - apply rename to canonical meeting IDs when matched: `PYTHONPATH=src python -m meetingctl.cli backfill --match-calendar --rename --json`
+
+## 8) Automation Entry Point (Hazel / Keyboard Maestro)
+- Use `scripts/run_ingest_once.sh` as the single command target for file-triggered automation.
+- It runs one ingest pass (`ingest-watch --once --match-calendar`) followed by queue processing.
+- Recommended trigger:
+  - New `.wav` in `RECORDINGS_PATH` older than `MEETINGCTL_INGEST_MIN_AGE_SECONDS`.
