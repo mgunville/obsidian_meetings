@@ -32,6 +32,9 @@ Install separately:
    - `PYTHONPATH=src python -m meetingctl.cli doctor --json`
 
 ## Backfill Previous Recordings
+- Wrapper (recommended):
+  - preview: `bash scripts/backfill_historical.sh`
+  - apply: `bash scripts/backfill_historical.sh --apply`
 - Queue historical recordings:
   - `PYTHONPATH=src python -m meetingctl.cli backfill --extensions wav,m4a --json`
 - Process immediately instead of queueing:

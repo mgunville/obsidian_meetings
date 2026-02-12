@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import shutil
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable
 
@@ -263,6 +265,91 @@ class JXABackend:
             return self._loader()
 
 
+class ICalBuddyBackend:
+    backend_name = "icalbuddy"
+
+    def __init__(
+        self,
+        loader: Callable[..., list[dict[str, object]]] | None = None,
+    ) -> None:
+        self._loader = loader or self._default_loader
+
+    def _default_loader(
+        self,
+        *,
+        start: datetime | None = None,
+        end: datetime | None = None,
+    ) -> list[dict[str, object]]:
+        if os.environ.get("MEETINGCTL_ICALBUDDY_UNAVAILABLE") == "1":
+            raise BackendUnavailableError("icalBuddy backend unavailable on this machine.")
+
+        if "MEETINGCTL_ICALBUDDY_EVENTS_JSON" in os.environ:
+            raw = os.environ.get("MEETINGCTL_ICALBUDDY_EVENTS_JSON", "[]")
+            payload = json.loads(raw)
+            if not isinstance(payload, list):
+                raise RuntimeError("Invalid icalBuddy payload")
+            return payload
+
+        binary = _find_icalbuddy_binary()
+        if binary is None:
+            raise BackendUnavailableError(
+                "icalBuddy binary not found. Set MEETINGCTL_ICALBUDDY_BIN or install icalBuddy."
+            )
+
+        command = [
+            str(binary),
+            "-npn",
+            "-nc",
+            "-ps",
+            "/ - /",
+            "-iep",
+            "datetime,title",
+            "-po",
+            "datetime, title",
+            "-b",
+            "###### ",
+            "-tf",
+            "%H%M",
+        ]
+        calendar_name = os.environ.get("MEETINGCTL_ICALBUDDY_CALENDAR", "").strip()
+        if calendar_name:
+            command.extend(["-ic", calendar_name])
+
+        if start is not None and end is not None:
+            command.append(f"eventsFrom:{start.astimezone().date().isoformat()}")
+            command.append(f"to:{end.astimezone().date().isoformat()}")
+            event_date = start.astimezone().date()
+        else:
+            command.append("eventsToday")
+            event_date = datetime.now().astimezone().date()
+
+        timeout_seconds = float(os.environ.get("MEETINGCTL_ICALBUDDY_TIMEOUT_SECONDS", "30"))
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+        )
+        if result.returncode != 0:
+            error_msg = result.stderr.strip() if result.stderr else "Unknown icalBuddy error"
+            raise RuntimeError(
+                f"icalBuddy failed: {error_msg}. "
+                "Check calendar permissions. Run `meetingctl doctor` for diagnostics."
+            )
+        return _parse_icalbuddy_output(result.stdout, event_date, calendar_name)
+
+    def fetch_events(
+        self,
+        *,
+        start: datetime | None = None,
+        end: datetime | None = None,
+    ) -> list[dict[str, object]]:
+        try:
+            return self._loader(start=start, end=end)
+        except TypeError:
+            return self._loader()
+
+
 def _run_eventkit_helper(
     helper_path: Path,
     *,
@@ -308,6 +395,82 @@ def _run_eventkit_helper(
 
 def _default_eventkit_helper_path() -> Path:
     return Path(__file__).resolve().parents[3] / "scripts" / "eventkit_fetch.py"
+
+
+def _find_icalbuddy_binary() -> Path | None:
+    explicit = os.environ.get("MEETINGCTL_ICALBUDDY_BIN", "").strip()
+    if explicit:
+        candidate = Path(explicit).expanduser()
+        if candidate.exists():
+            return candidate.resolve()
+        return None
+
+    candidates = [
+        Path("~/icalBuddy/icalBuddy").expanduser(),
+        Path("/usr/local/bin/icalBuddy"),
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate.resolve()
+
+    which = shutil.which("icalBuddy")
+    if which:
+        return Path(which).resolve()
+    return None
+
+
+def _parse_icalbuddy_output(
+    raw: str,
+    event_date,
+    calendar_name: str,
+) -> list[dict[str, object]]:
+    local_tz = datetime.now().astimezone().tzinfo
+    pattern = re.compile(r"^#+\s*(\d{4})\s*-\s*(\d{4})\s*-\s*(.+)$")
+    parsed: list[dict[str, object]] = []
+    for line in raw.splitlines():
+        match = pattern.match(line.strip())
+        if not match:
+            continue
+        start_hhmm, end_hhmm, title = match.groups()
+        try:
+            sh = int(start_hhmm[:2])
+            sm = int(start_hhmm[2:])
+            eh = int(end_hhmm[:2])
+            em = int(end_hhmm[2:])
+        except ValueError:
+            continue
+
+        start_dt = datetime(
+            event_date.year,
+            event_date.month,
+            event_date.day,
+            sh,
+            sm,
+            tzinfo=local_tz,
+        )
+        end_dt = datetime(
+            event_date.year,
+            event_date.month,
+            event_date.day,
+            eh,
+            em,
+            tzinfo=local_tz,
+        )
+        if end_dt <= start_dt:
+            end_dt = end_dt + timedelta(days=1)
+
+        parsed.append(
+            {
+                "title": title.strip(),
+                "start": start_dt.isoformat(),
+                "end": end_dt.isoformat(),
+                "calendar_name": calendar_name,
+                "location": "",
+                "notes": "",
+                "url": "",
+            }
+        )
+    return parsed
 
 
 def _normalize_datetime_string(raw: str) -> str:

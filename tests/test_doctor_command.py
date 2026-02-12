@@ -26,6 +26,7 @@ def test_doctor_failure_has_actionable_hints(monkeypatch) -> None:
     monkeypatch.delenv("RECORDINGS_PATH", raising=False)
     monkeypatch.setenv("MEETINGCTL_EVENTKIT_UNAVAILABLE", "1")
     monkeypatch.setenv("MEETINGCTL_JXA_UNAVAILABLE", "1")
+    monkeypatch.setenv("MEETINGCTL_ICALBUDDY_UNAVAILABLE", "1")
     payload = run_doctor()
     assert payload["ok"] is False
     expected = json.loads((Path(__file__).parent / "fixtures" / "doctor_missing_paths.json").read_text())

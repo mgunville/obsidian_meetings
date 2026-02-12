@@ -3,7 +3,12 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 import re
 
-from meetingctl.calendar.backends import BackendUnavailableError, EventKitBackend, JXABackend
+from meetingctl.calendar.backends import (
+    BackendUnavailableError,
+    EventKitBackend,
+    ICalBuddyBackend,
+    JXABackend,
+)
 from meetingctl.calendar.selector import select_now_or_next
 
 
@@ -63,12 +68,14 @@ def resolve_now_or_next_event(
     window_minutes: int,
     eventkit: EventKitBackend | None = None,
     jxa: JXABackend | None = None,
+    icalbuddy: ICalBuddyBackend | None = None,
 ) -> dict[str, object]:
     now = now or datetime.now(UTC)
     eventkit = eventkit or EventKitBackend()
     jxa = jxa or JXABackend()
+    icalbuddy = icalbuddy or ICalBuddyBackend()
 
-    events, backend, fallback_used = _fetch_events(eventkit=eventkit, jxa=jxa)
+    events, backend, fallback_used = _fetch_events(eventkit=eventkit, jxa=jxa, icalbuddy=icalbuddy)
     selected = select_now_or_next(events=events, now=now, window_minutes=window_minutes)
     if selected is None:
         raise CalendarResolutionError(backend=backend, reason="No ongoing/upcoming event in window")
@@ -86,42 +93,66 @@ def resolve_now_or_next_event(
     }
 
 
-def _fetch_events(*, eventkit: EventKitBackend, jxa: JXABackend) -> tuple[list[dict[str, object]], str, bool]:
-    return _fetch_events_in_range(eventkit=eventkit, jxa=jxa, start=None, end=None)
+def _fetch_events(
+    *,
+    eventkit: EventKitBackend,
+    jxa: JXABackend,
+    icalbuddy: ICalBuddyBackend,
+) -> tuple[list[dict[str, object]], str, bool]:
+    return _fetch_events_in_range(
+        eventkit=eventkit,
+        jxa=jxa,
+        icalbuddy=icalbuddy,
+        start=None,
+        end=None,
+    )
 
 
 def _fetch_events_in_range(
     *,
     eventkit: EventKitBackend,
     jxa: JXABackend,
+    icalbuddy: ICalBuddyBackend,
     start: datetime | None,
     end: datetime | None,
 ) -> tuple[list[dict[str, object]], str, bool]:
+    eventkit_unavailable = False
     try:
         events = eventkit.fetch_events(start=start, end=end)
         backend = "eventkit"
         fallback_used = False
-        # Some runtimes return an empty EventKit result despite calendar data being
-        # available via JXA. Prefer JXA only when it can provide at least one event.
-        if not events:
-            try:
-                jxa_events = jxa.fetch_events(start=start, end=end)
-                if jxa_events:
-                    events = jxa_events
-                    backend = "jxa"
-                    fallback_used = True
-            except Exception:
-                # Keep EventKit empty result semantics when JXA is unavailable/erroring.
-                pass
     except BackendUnavailableError:
-        try:
-            events = jxa.fetch_events(start=start, end=end)
-            backend = "jxa"
-            fallback_used = True
-        except Exception as exc:
-            raise CalendarResolutionError(backend="jxa", reason=str(exc)) from exc
+        eventkit_unavailable = True
+        events = []
+        backend = "eventkit"
+        fallback_used = False
     except Exception as exc:
         raise CalendarResolutionError(backend="eventkit", reason=str(exc)) from exc
+
+    # EventKit unavailable or empty result: try JXA.
+    if eventkit_unavailable or not events:
+        try:
+            jxa_events = jxa.fetch_events(start=start, end=end)
+            if jxa_events:
+                return jxa_events, "jxa", True
+            if eventkit_unavailable:
+                backend = "jxa"
+        except Exception:
+            if eventkit_unavailable:
+                backend = "jxa"
+                events = []
+
+    # EventKit+JXA unavailable/empty: try icalBuddy.
+    if eventkit_unavailable or backend == "jxa" or not events:
+        try:
+            ical_events = icalbuddy.fetch_events(start=start, end=end)
+            if ical_events:
+                return ical_events, "icalbuddy", True
+            if eventkit_unavailable or backend == "jxa":
+                backend = "icalbuddy"
+        except Exception as exc:
+            if eventkit_unavailable or backend == "jxa":
+                raise CalendarResolutionError(backend="icalbuddy", reason=str(exc)) from exc
     return events, backend, fallback_used
 
 
@@ -131,15 +162,18 @@ def resolve_event_near_timestamp(
     window_minutes: int,
     eventkit: EventKitBackend | None = None,
     jxa: JXABackend | None = None,
+    icalbuddy: ICalBuddyBackend | None = None,
 ) -> dict[str, object] | None:
     eventkit = eventkit or EventKitBackend()
     jxa = jxa or JXABackend()
+    icalbuddy = icalbuddy or ICalBuddyBackend()
     local_at = at.astimezone()
     day_start = local_at.replace(hour=0, minute=0, second=0, microsecond=0)
     day_end = day_start + timedelta(days=1)
     events, backend, fallback_used = _fetch_events_in_range(
         eventkit=eventkit,
         jxa=jxa,
+        icalbuddy=icalbuddy,
         start=day_start,
         end=day_end,
     )

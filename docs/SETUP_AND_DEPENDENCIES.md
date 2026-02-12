@@ -53,6 +53,14 @@ Preferred:
 
 Fallback:
 - JXA script: `scripts/calendar_events.jxa`
+- icalBuddy (tertiary fallback):
+  - supported binary lookup order:
+    - `MEETINGCTL_ICALBUDDY_BIN`
+    - `~/icalBuddy/icalBuddy`
+    - `/usr/local/bin/icalBuddy`
+    - `icalBuddy` on PATH
+  - optional calendar filter:
+    - `MEETINGCTL_ICALBUDDY_CALENDAR=Work`
 
 ## 4) macOS Permissions
 Grant access for the runtime used to execute `meetingctl`:
@@ -97,6 +105,9 @@ Permission probe:
   - `MEETINGCTL_PROCESSING_CONVERT_DRY_RUN=1`
 
 ## 7) Backfill (Prior Recordings)
+- Wrapper (recommended):
+  - preview: `bash scripts/backfill_historical.sh`
+  - apply: `bash scripts/backfill_historical.sh --apply`
 - Queue all matching recordings in `RECORDINGS_PATH`:
   - `PYTHONPATH=src python -m meetingctl.cli backfill --extensions wav,m4a --json`
 - Process them immediately:

@@ -1,9 +1,24 @@
 from __future__ import annotations
 
-from pathlib import Path
 import os
 import shutil
 import subprocess
+from pathlib import Path
+
+
+def _icalbuddy_available() -> bool:
+    if os.environ.get("MEETINGCTL_ICALBUDDY_UNAVAILABLE") == "1":
+        return False
+    explicit = os.environ.get("MEETINGCTL_ICALBUDDY_BIN", "").strip()
+    if explicit:
+        return Path(explicit).expanduser().exists()
+    candidates = [
+        Path("~/icalBuddy/icalBuddy").expanduser(),
+        Path("/usr/local/bin/icalBuddy"),
+    ]
+    if any(candidate.exists() for candidate in candidates):
+        return True
+    return shutil.which("icalBuddy") is not None
 
 try:
     from EventKit import EKEventStore, EKEntityTypeEvent
@@ -51,16 +66,17 @@ def run_doctor() -> dict[str, object]:
 
     eventkit_available = os.environ.get("MEETINGCTL_EVENTKIT_UNAVAILABLE") != "1"
     jxa_available = os.environ.get("MEETINGCTL_JXA_UNAVAILABLE") != "1"
+    icalbuddy_available = _icalbuddy_available()
     checks.append(
         {
             "name": "calendar_backend",
-            "ok": eventkit_available or jxa_available,
+            "ok": eventkit_available or jxa_available or icalbuddy_available,
             "message": (
                 "At least one calendar backend is available."
-                if (eventkit_available or jxa_available)
+                if (eventkit_available or jxa_available or icalbuddy_available)
                 else "No calendar backend available."
             ),
-            "hint": "Enable EventKit or JXA, then run `meetingctl doctor` again.",
+            "hint": "Enable EventKit, JXA, or icalBuddy, then run `meetingctl doctor` again.",
         }
     )
 

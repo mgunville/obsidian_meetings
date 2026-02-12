@@ -47,4 +47,11 @@ This is the single source of truth for active work. Other planning/audit docs ar
   - trigger via Hazel file event
   - ingest + queue + transcription + summary + note append
   - verify final note content and section ordering against template
+- [ ] Generate/importable Hazel rule artifact on another machine:
+  - inspect local Hazel DB/rule format on target host
+  - produce `.hazelrules` import package for `run_ingest_once.sh`
+  - validate import + trigger behavior without manual rule creation
 - [ ] Optional: add Hazel failure/quarantine rule for unmatched or failed recordings.
+- [ ] Resolve Anthropic API TLS trust issue in this runtime:
+  - current error: SSL certificate verification failure
+  - restore real Claude summary execution in `process-queue`

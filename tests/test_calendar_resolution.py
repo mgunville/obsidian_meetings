@@ -9,6 +9,7 @@ import pytest
 from meetingctl.calendar.backends import (
     BackendUnavailableError,
     EventKitBackend,
+    ICalBuddyBackend,
     JXABackend,
 )
 from meetingctl.calendar.service import (
@@ -181,11 +182,49 @@ def test_resolution_error_includes_backend_and_doctor_hint() -> None:
     now = datetime(2026, 2, 8, 10, 0, tzinfo=UTC)
     eventkit = EventKitBackend(loader=lambda: (_ for _ in ()).throw(BackendUnavailableError("x")))
     jxa = JXABackend(loader=lambda: (_ for _ in ()).throw(RuntimeError("JXA failure")))
+    icalbuddy = ICalBuddyBackend(loader=lambda: (_ for _ in ()).throw(RuntimeError("icalBuddy failure")))
 
     with pytest.raises(CalendarResolutionError) as excinfo:
-        resolve_now_or_next_event(now=now, window_minutes=5, eventkit=eventkit, jxa=jxa)
-    assert excinfo.value.backend == "jxa"
+        resolve_now_or_next_event(
+            now=now,
+            window_minutes=5,
+            eventkit=eventkit,
+            jxa=jxa,
+            icalbuddy=icalbuddy,
+        )
+    assert excinfo.value.backend == "icalbuddy"
     assert "meetingctl doctor" in str(excinfo.value)
+
+
+def test_resolution_falls_back_to_icalbuddy_when_eventkit_and_jxa_unavailable() -> None:
+    now = datetime(2026, 2, 8, 10, 0, tzinfo=UTC)
+    eventkit = EventKitBackend(loader=lambda: (_ for _ in ()).throw(BackendUnavailableError("x")))
+    jxa = JXABackend(loader=lambda: (_ for _ in ()).throw(RuntimeError("JXA failure")))
+    icalbuddy = ICalBuddyBackend(
+        loader=lambda: [
+            {
+                "title": "Weekly Sync",
+                "start": "2026-02-08T10:02:00+00:00",
+                "end": "2026-02-08T10:30:00+00:00",
+                "location": "https://teams.microsoft.com/l/meetup-join/abc",
+                "calendar_name": "Work",
+                "notes": "",
+                "url": "",
+            }
+        ]
+    )
+
+    payload = resolve_now_or_next_event(
+        now=now,
+        window_minutes=5,
+        eventkit=eventkit,
+        jxa=jxa,
+        icalbuddy=icalbuddy,
+    )
+
+    assert payload["backend"] == "icalbuddy"
+    assert payload["fallback_used"] is True
+    assert payload["platform"] == "teams"
 
 
 def test_resolution_prefers_provider_join_link_over_aka_ms_help_link() -> None:
@@ -425,3 +464,35 @@ def test_jxa_backend_uses_script_file_when_configured(mock_run: MagicMock, monke
     call_args = mock_run.call_args[0][0]
     assert call_args[:3] == ["osascript", "-l", "JavaScript"]
     assert script_path in call_args
+
+
+@patch("meetingctl.calendar.backends.subprocess.run")
+def test_icalbuddy_backend_parses_templater_style_output(mock_run: MagicMock, monkeypatch) -> None:
+    mock_run.return_value = MagicMock(
+        returncode=0,
+        stdout=(
+            "###### 0730 - 0830 - Drop Off\n"
+            "###### 0900 - 0930 - Weekly Epiq Discovery + Jira Touchbase\n"
+        ),
+        stderr="",
+    )
+    monkeypatch.setenv("MEETINGCTL_ICALBUDDY_BIN", "/usr/local/bin/icalBuddy")
+    monkeypatch.setenv("MEETINGCTL_ICALBUDDY_CALENDAR", "Work")
+    backend = ICalBuddyBackend()
+    events = backend.fetch_events(
+        start=datetime(2026, 2, 12, 0, 0, tzinfo=UTC),
+        end=datetime(2026, 2, 13, 0, 0, tzinfo=UTC),
+    )
+    assert len(events) == 2
+    assert events[0]["title"] == "Drop Off"
+    assert events[0]["calendar_name"] == "Work"
+    call_args = mock_run.call_args[0][0]
+    assert any(str(arg).startswith("eventsFrom:") for arg in call_args)
+    assert any(str(arg).startswith("to:") for arg in call_args)
+
+
+def test_icalbuddy_backend_raises_when_binary_missing(monkeypatch) -> None:
+    monkeypatch.setenv("MEETINGCTL_ICALBUDDY_BIN", "/missing/icalBuddy")
+    backend = ICalBuddyBackend()
+    with pytest.raises(BackendUnavailableError):
+        backend.fetch_events()

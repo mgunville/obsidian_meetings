@@ -302,15 +302,19 @@ def _artifact_status_region(result: ProcessResult) -> str:
     transcript_srt_path = transcript_path.with_suffix(".srt")
     transcript_json_path = transcript_path.with_suffix(".json")
     mp3_path = result.mp3_path
-    return "\n".join(
-        [
-            f"- transcript_path: {transcript_path}",
-            f"- transcript_srt_path: {transcript_srt_path}",
-            f"- transcript_json_path: {transcript_json_path}",
-            f"- mp3_path: {mp3_path}",
-            "- status: complete",
-        ]
-    )
+    lines = [f"- transcript_path: {transcript_path}"]
+    if transcript_srt_path.exists():
+        lines.append(f"- transcript_srt_path: {transcript_srt_path}")
+    else:
+        lines.append("- transcript_srt_path: (not generated)")
+    if transcript_json_path.exists():
+        lines.append(f"- transcript_json_path: {transcript_json_path}")
+    else:
+        lines.append("- transcript_json_path: (not generated)")
+    lines.append(f"- mp3_path: {mp3_path}")
+    status = "complete" if transcript_path.exists() and mp3_path.exists() else "partial"
+    lines.append(f"- status: {status}")
+    return "\n".join(lines)
 
 
 def _default_queue_handler(payload: dict[str, object]) -> None:
