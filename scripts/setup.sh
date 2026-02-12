@@ -12,11 +12,20 @@ cd "$ROOT_DIR"
 python3.11 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
+python -m pip install --upgrade setuptools wheel
 if [ -f requirements.txt ]; then
   pip install -r requirements.txt
 else
   pip install -e .[dev]
 fi
+
+python - <<'PY'
+import importlib
+missing = [m for m in ("setuptools", "wheel") if importlib.util.find_spec(m) is None]
+if missing:
+    raise SystemExit(f"Missing packaging modules in .venv: {', '.join(missing)}")
+print("Packaging backend check: OK")
+PY
 
 if [ ! -f .env ] && [ -f .env.example ]; then
   cp .env.example .env

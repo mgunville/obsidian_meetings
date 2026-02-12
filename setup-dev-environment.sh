@@ -36,7 +36,12 @@ log_info "Setting up virtual environment for Obsidian Meetings..."
 # Create venv if it doesn't exist
 if [ ! -d "$VENV_DIR" ]; then
     log_info "Creating virtual environment..."
-    python3 -m venv "$VENV_DIR"
+    if command -v python3.11 >/dev/null 2>&1; then
+        PYTHON_BIN="python3.11"
+    else
+        PYTHON_BIN="python3"
+    fi
+    "$PYTHON_BIN" -m venv "$VENV_DIR"
     log_success "Virtual environment created"
 else
     log_info "Virtual environment already exists"
@@ -49,6 +54,7 @@ source "$VENV_DIR/bin/activate"
 # Upgrade pip
 log_info "Upgrading pip..."
 pip install --upgrade pip
+pip install --upgrade setuptools wheel
 
 # Install project dependencies
 if [ -f "$PROJECT_DIR/requirements.txt" ]; then
