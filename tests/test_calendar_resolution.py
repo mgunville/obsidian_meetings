@@ -282,9 +282,13 @@ def test_eventkit_backend_fetches_real_calendar_events(
     monkeypatch.setenv("MEETINGCTL_EVENTKIT_HELPER_MODE", "direct")
     # Create backend with no loader to use default
     backend = EventKitBackend()
+    with patch("meetingctl.calendar.backends.NSDate") as mock_nsdate:
+        mock_now = MagicMock()
+        mock_nsdate.date.return_value = mock_now
+        mock_now.dateByAddingTimeInterval_.side_effect = [MagicMock(), MagicMock()]
 
-    # Fetch events
-    events = backend.fetch_events()
+        # Fetch events
+        events = backend.fetch_events()
 
     # Verify we got normalized event data
     assert len(events) == 1
@@ -444,10 +448,33 @@ def test_eventkit_backend_normalizes_description_dates(
     mock_store.eventsMatchingPredicate_.return_value = [mock_event]
     monkeypatch.setenv("MEETINGCTL_EVENTKIT_HELPER_MODE", "direct")
     backend = EventKitBackend()
+    with patch("meetingctl.calendar.backends.NSDate") as mock_nsdate:
+        mock_now = MagicMock()
+        mock_nsdate.date.return_value = mock_now
+        mock_now.dateByAddingTimeInterval_.side_effect = [MagicMock(), MagicMock()]
 
-    events = backend.fetch_events()
+        events = backend.fetch_events()
     assert events[0]["start"] == "2026-02-08T10:00:00+00:00"
     assert events[0]["end"] == "2026-02-08T10:30:00+00:00"
+
+
+@patch("meetingctl.calendar.backends.subprocess.run")
+def test_jxa_backend_normalizes_js_date_to_iso(mock_run: MagicMock) -> None:
+    mock_run.return_value = MagicMock(
+        returncode=0,
+        stdout=(
+            '[{"title":"Daily Standup","startDate":"Wed Feb 18 2026 19:00:00 GMT+0000 '
+            '(Greenwich Mean Time)","endDate":"Wed Feb 18 2026 19:30:00 GMT+0000 '
+            '(Greenwich Mean Time)","calendarTitle":"Work","location":"","notes":""}]'
+        ),
+        stderr="",
+    )
+
+    backend = JXABackend()
+    events = backend.fetch_events()
+
+    assert events[0]["start"] == "2026-02-18T19:00:00+00:00"
+    assert events[0]["end"] == "2026-02-18T19:30:00+00:00"
 
 
 @patch("meetingctl.calendar.backends.subprocess.run")

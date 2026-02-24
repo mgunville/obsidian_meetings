@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
 
 import pytest
 
@@ -88,6 +89,44 @@ def test_whisperx_transcription_invokes_runner_for_existing_wav(tmp_path: Path) 
     assert "int8" in calls[0]
     assert "--vad_method" in calls[0]
     assert "silero" in calls[0]
+
+
+def test_transcription_reports_corrupt_media_when_transcript_missing(tmp_path: Path) -> None:
+    wav = tmp_path / "bad.m4a"
+    wav.write_text("bad")
+    transcript_path = tmp_path / "out" / "transcript.txt"
+
+    def _runner(args, check=True):
+        return subprocess.CompletedProcess(
+            args=args,
+            returncode=0,
+            stdout="",
+            stderr="[mov,mp4,m4a] moov atom not found\nError opening input files: Invalid data found when processing input",
+        )
+
+    runner = WhisperTranscriptionRunner(runner=_runner)
+    with pytest.raises(TranscriptionError) as excinfo:
+        runner.transcribe(wav_path=wav, transcript_path=transcript_path)
+    assert "corrupted or incomplete" in str(excinfo.value)
+
+
+def test_transcription_reports_decode_failure_on_nonzero_exit(tmp_path: Path) -> None:
+    wav = tmp_path / "bad2.m4a"
+    wav.write_text("bad")
+    transcript_path = tmp_path / "out" / "transcript.txt"
+
+    def _runner(args, check=True):
+        raise subprocess.CalledProcessError(
+            183,
+            args,
+            output="",
+            stderr="Error opening input files: Invalid data found when processing input",
+        )
+
+    runner = WhisperTranscriptionRunner(runner=_runner)
+    with pytest.raises(TranscriptionError) as excinfo:
+        runner.transcribe(wav_path=wav, transcript_path=transcript_path)
+    assert "invalid media data" in str(excinfo.value)
 
 
 def test_create_transcription_runner_selects_whisperx(monkeypatch) -> None:

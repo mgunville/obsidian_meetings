@@ -142,3 +142,92 @@ def test_backfill_cli_match_calendar_rename_updates_recording_name(
     renamed_wav = Path(queued["wav_path"])
     assert renamed_wav.exists()
     assert not wav.exists()
+
+
+def test_backfill_cli_process_now_fails_fast_when_transcriber_missing(
+    monkeypatch, tmp_path: Path, capsys
+) -> None:
+    recordings = tmp_path / "recordings"
+    recordings.mkdir(parents=True, exist_ok=True)
+    vault = tmp_path / "vault"
+    vault.mkdir(parents=True, exist_ok=True)
+    (recordings / "20260208_1015-team-sync.m4a").write_text("m4a")
+    (recordings / "20260208_1115-demo.m4a").write_text("m4a")
+    monkeypatch.setenv("RECORDINGS_PATH", str(recordings))
+    monkeypatch.setenv("VAULT_PATH", str(vault))
+    monkeypatch.setenv("DEFAULT_MEETINGS_FOLDER", "meetings")
+    monkeypatch.setattr("meetingctl.cli.shutil.which", lambda _: None)
+    monkeypatch.setattr("meetingctl.cli.sys.executable", str(tmp_path / "missing-python"))
+    monkeypatch.setattr("meetingctl.cli.sys.prefix", str(tmp_path / "missing-prefix"))
+    monkeypatch.setattr(
+        "sys.argv",
+        ["meetingctl", "backfill", "--extensions", "m4a", "--process-now", "--json"],
+    )
+
+    assert cli.main() == 2
+    payload = json.loads(capsys.readouterr().out)
+    assert "Transcription backend unavailable" in payload["error"]
+
+
+def test_backfill_cli_file_list_queues_exact_manifest_files(
+    monkeypatch, tmp_path: Path, capsys
+) -> None:
+    recordings = tmp_path / "recordings"
+    recordings.mkdir(parents=True, exist_ok=True)
+    vault = tmp_path / "vault"
+    vault.mkdir(parents=True, exist_ok=True)
+    queue = tmp_path / "queue.jsonl"
+    target = recordings / "b.m4a"
+    other = recordings / "a.m4a"
+    target.write_text("m4a")
+    other.write_text("m4a")
+    manifest = tmp_path / "valid_m4a_manifest.txt"
+    manifest.write_text(f"{target}\n")
+
+    monkeypatch.setenv("RECORDINGS_PATH", str(recordings))
+    monkeypatch.setenv("VAULT_PATH", str(vault))
+    monkeypatch.setenv("DEFAULT_MEETINGS_FOLDER", "meetings")
+    monkeypatch.setenv("MEETINGCTL_PROCESS_QUEUE_FILE", str(queue))
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "meetingctl",
+            "backfill",
+            "--extensions",
+            "m4a",
+            "--file-list",
+            str(manifest),
+            "--json",
+        ],
+    )
+
+    assert cli.main() == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["discovered_files"] == 1
+    assert payload["queued_jobs"] == 1
+    assert payload["file_list"] == str(manifest.resolve())
+    queued = json.loads(queue.read_text().strip())
+    assert Path(queued["wav_path"]).resolve() == target.resolve()
+
+
+def test_backfill_cli_progress_writes_to_stderr(monkeypatch, tmp_path: Path, capsys) -> None:
+    recordings = tmp_path / "recordings"
+    recordings.mkdir(parents=True, exist_ok=True)
+    vault = tmp_path / "vault"
+    vault.mkdir(parents=True, exist_ok=True)
+    (recordings / "20260208_1015-team-sync.wav").write_text("wav")
+
+    monkeypatch.setenv("RECORDINGS_PATH", str(recordings))
+    monkeypatch.setenv("VAULT_PATH", str(vault))
+    monkeypatch.setenv("DEFAULT_MEETINGS_FOLDER", "meetings")
+    monkeypatch.setattr(
+        "sys.argv",
+        ["meetingctl", "backfill", "--progress", "--dry-run", "--json"],
+    )
+
+    assert cli.main() == 0
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["discovered_files"] == 1
+    assert "backfill progress: 0/1" in captured.err
+    assert "backfill progress: 1/1" in captured.err

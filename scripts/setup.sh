@@ -1,25 +1,49 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if ! command -v python3.11 >/dev/null 2>&1; then
-  echo "python3.11 is required. Install Python 3.11+ first."
-  exit 1
-fi
+pick_python_bin() {
+  local candidate
+  candidate="$(which -a python3.11 2>/dev/null | grep -v '/.pyenv/shims/' | head -n 1 || true)"
+  if [ -n "$candidate" ]; then
+    echo "$candidate"
+    return 0
+  fi
+  candidate="$(which -a python3 2>/dev/null | grep -v '/.pyenv/shims/' | head -n 1 || true)"
+  if [ -n "$candidate" ]; then
+    echo "$candidate"
+    return 0
+  fi
+  return 1
+}
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-python3.11 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install --upgrade setuptools wheel
-if [ -f requirements.txt ]; then
-  pip install -r requirements.txt
-else
-  pip install -e .[dev]
+PYTHON_BIN="$(pick_python_bin || true)"
+if [ -z "$PYTHON_BIN" ]; then
+  echo "A non-pyenv-shim python3.11 (preferred) or python3 (3.11+) is required."
+  exit 1
 fi
 
-python - <<'PY'
+PYTHON_OK="$("$PYTHON_BIN" -c 'import sys; print("1" if sys.version_info >= (3, 11) else "0")')"
+if [ "$PYTHON_OK" != "1" ]; then
+  echo "Selected python version must be 3.11 or newer."
+  "$PYTHON_BIN" -V
+  exit 1
+fi
+
+"$PYTHON_BIN" -m venv .venv
+VENV_PY="$ROOT_DIR/.venv/bin/python"
+VENV_PIP="$ROOT_DIR/.venv/bin/pip"
+"$VENV_PY" -m pip install --upgrade pip setuptools wheel
+if [ -f requirements.txt ]; then
+  "$VENV_PIP" install -r requirements.txt
+else
+  "$VENV_PIP" install -e ".[dev]"
+fi
+"$VENV_PIP" install openai-whisper
+
+"$VENV_PY" - <<'PY'
 import importlib
 missing = [m for m in ("setuptools", "wheel") if importlib.util.find_spec(m) is None]
 if missing:
@@ -72,6 +96,11 @@ if [ -f .env ]; then
     fi
   done < .env
 fi
-PYTHONPATH=src python -m meetingctl.cli doctor --json || true
+PYTHONPATH=src "$VENV_PY" -m meetingctl.cli doctor --json || true
+if ! "$VENV_PY" -m whisper --help >/dev/null 2>&1; then
+  echo "Whisper CLI check: FAILED (run .venv/bin/pip install openai-whisper)"
+else
+  echo "Whisper CLI check: OK"
+fi
 
 echo "Setup complete. Activate with: source .venv/bin/activate"

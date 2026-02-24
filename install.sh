@@ -3,12 +3,24 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-if command -v python3.11 >/dev/null 2>&1; then
-  PYTHON_BIN="python3.11"
-elif command -v python3 >/dev/null 2>&1; then
-  PYTHON_BIN="python3"
-else
-  echo "python3.11 (preferred) or python3 (3.11+) is required."
+pick_python_bin() {
+  local candidate
+  candidate="$(which -a python3.11 2>/dev/null | grep -v '/.pyenv/shims/' | head -n 1 || true)"
+  if [ -n "$candidate" ]; then
+    echo "$candidate"
+    return 0
+  fi
+  candidate="$(which -a python3 2>/dev/null | grep -v '/.pyenv/shims/' | head -n 1 || true)"
+  if [ -n "$candidate" ]; then
+    echo "$candidate"
+    return 0
+  fi
+  return 1
+}
+
+PYTHON_BIN="$(pick_python_bin || true)"
+if [ -z "$PYTHON_BIN" ]; then
+  echo "A non-pyenv-shim python3.11 (preferred) or python3 (3.11+) is required."
   exit 1
 fi
 
@@ -22,18 +34,24 @@ if [ "$PYTHON_OK" != "1" ]; then
 fi
 
 "$PYTHON_BIN" -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-python -m pip install --upgrade setuptools wheel
+VENV_PY="$ROOT_DIR/.venv/bin/python"
+VENV_PIP="$ROOT_DIR/.venv/bin/pip"
+"$VENV_PY" -m pip install --upgrade pip setuptools wheel
+"$VENV_PIP" install -r requirements.txt
+"$VENV_PIP" install openai-whisper
 
-python - <<'PY'
+"$VENV_PY" - <<'PY'
 import importlib
 missing = [m for m in ("setuptools", "wheel") if importlib.util.find_spec(m) is None]
 if missing:
     raise SystemExit(f"Missing packaging modules in .venv: {', '.join(missing)}")
 print("Packaging backend check: OK")
 PY
+
+if ! "$VENV_PY" -m whisper --help >/dev/null 2>&1; then
+  echo "WARNING: whisper CLI/module is unavailable in .venv."
+  echo "Run: .venv/bin/pip install openai-whisper"
+fi
 
 if [ ! -f .env ] && [ -f .env.example ]; then
   cp .env.example .env
@@ -46,6 +64,8 @@ echo ""
 echo "Install complete."
 echo "1) Edit .env paths if needed."
 echo "2) Run doctor:"
-echo "   source .venv/bin/activate && set -a && source .env && set +a && PYTHONPATH=src python -m meetingctl.cli doctor --json"
+echo "   set -a && source .env && set +a && PYTHONPATH=src .venv/bin/python -m meetingctl.cli doctor --json"
 echo "3) Run tests:"
-echo "   source .venv/bin/activate && pytest"
+echo "   .venv/bin/python -m pytest"
+echo "4) Run one-file transcription smoke check:"
+echo "   .venv/bin/python -m whisper --help | head -n 5"

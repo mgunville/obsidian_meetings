@@ -34,6 +34,7 @@ def test_event_command_error_is_backend_aware(monkeypatch, capsys) -> None:
     monkeypatch.setenv("MEETINGCTL_NOW_ISO", "2026-02-08T10:05:00+00:00")
     monkeypatch.setenv("MEETINGCTL_EVENTKIT_UNAVAILABLE", "1")
     monkeypatch.setenv("MEETINGCTL_JXA_UNAVAILABLE", "1")
+    monkeypatch.setenv("MEETINGCTL_ICALBUDDY_UNAVAILABLE", "1")
     monkeypatch.setattr("sys.argv", ["meetingctl", "event", "--json"])
     assert cli.main() == 2
     payload = json.loads(capsys.readouterr().out)

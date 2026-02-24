@@ -7,8 +7,10 @@ From repo root:
 This does:
 - creates `.venv`
 - installs `requirements.txt` (`-e .[dev]`)
+- installs `openai-whisper` into `.venv` for local transcription runs
 - creates `.env` from `.env.example` if missing
 - marks `scripts/eventkit_fetch.py` executable
+- uses a non-`pyenv` shim Python binary to avoid PEP 668/system-package conflicts
 
 ## 2) Required Environment Variables (`.env`)
 Minimum required:
@@ -25,6 +27,8 @@ Optional (already documented in `.env.example`):
 - `MEETINGCTL_PROCESS_QUEUE_FILE=~/.local/state/meetingctl/process_queue.jsonl`
 - `MEETINGCTL_PROCESSED_JOBS_FILE=~/.local/state/meetingctl/processed_jobs.jsonl`
 - `ANTHROPIC_API_KEY=...`
+- `MEETINGCTL_SUMMARY_MODEL=claude-3-5-sonnet-latest` (optional; set if your account cannot access the default model)
+- `MEETINGCTL_PROCESSING_SUMMARY_JSON={"minutes":"...","decisions":[],"action_items":[]}` (optional no-API local test override)
 
 ## 3) Integration Requirements
 ### Audio Hijack
@@ -73,13 +77,14 @@ Permission probe:
 - `python scripts/eventkit_fetch.py --request-access`
 
 ## 5) Validation Checklist
-1. `source .venv/bin/activate && pytest`
-2. `source .venv/bin/activate && set -a && source .env && set +a && PYTHONPATH=src python -m meetingctl.cli doctor --json`
-3. Local smoke:
+1. `.venv/bin/python -m pytest`
+2. `set -a && source .env && set +a && PYTHONPATH=src .venv/bin/python -m meetingctl.cli doctor --json`
+3. `.venv/bin/python -m whisper --help`
+4. Local smoke:
 - `bash scripts/smoke-test.sh`
-4. Real-mode incremental:
+5. Real-mode incremental:
 - `MODE=real bash scripts/run-incremental-workflow.sh`
-5. Real-machine smoke:
+6. Real-machine smoke:
 - `SMOKE_REAL_MACHINE=1 bash scripts/smoke-test.sh`
 
 ## 6) Transcription Backend Bootstrap
@@ -87,6 +92,8 @@ Permission probe:
 - Ensure a transcription backend is available on PATH:
   - `whisper` (default in `meetingctl.transcription.WhisperTranscriptionRunner`), or
   - `whisperx` (optional high-detail mode).
+- Preferred invocation to avoid shell/PATH ambiguity:
+  - `.venv/bin/python -m whisper --help`
 - Bootstrap local WhisperX model storage (avoids runtime Python SSL/HuggingFace download issues):
   - Link existing local model if found:
     - `bash scripts/bootstrap_whisperx_model.sh --link-only`

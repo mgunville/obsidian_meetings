@@ -6,7 +6,7 @@ from pathlib import Path
 from meetingctl import cli
 
 
-def test_ingest_watch_once_queues_wav_and_ignores_m4a(monkeypatch, tmp_path: Path, capsys) -> None:
+def test_ingest_watch_once_queues_wav_and_m4a(monkeypatch, tmp_path: Path, capsys) -> None:
     recordings = tmp_path / "recordings"
     recordings.mkdir(parents=True, exist_ok=True)
     vault = tmp_path / "vault"
@@ -31,17 +31,19 @@ def test_ingest_watch_once_queues_wav_and_ignores_m4a(monkeypatch, tmp_path: Pat
     payload = json.loads(capsys.readouterr().out)
 
     assert payload["polls"] == 1
-    assert payload["queued_jobs"] == 1
+    assert payload["queued_jobs"] == 3
     assert payload["failed_jobs"] == 0
     last_poll = payload["last_poll"]
-    assert last_poll["discovered_wav"] == 1
-    assert last_poll["queued_jobs"] == 1
+    assert last_poll["discovered_audio"] == 3
+    assert last_poll["discovered_wav"] == 3
+    assert last_poll["queued_jobs"] == 3
     queued = queue.read_text().strip().splitlines()
-    assert len(queued) == 1
-    queued_payload = json.loads(queued[0])
-    assert queued_payload["wav_path"].endswith(".wav")
+    assert len(queued) == 3
+    queued_paths = {json.loads(line)["wav_path"] for line in queued}
+    assert any(path.endswith(".wav") for path in queued_paths)
+    assert any(path.endswith(".m4a") for path in queued_paths)
     ingested_lines = ingested.read_text().strip().splitlines()
-    assert len(ingested_lines) == 1
+    assert len(ingested_lines) == 3
 
 
 def test_ingest_watch_skips_already_ingested_and_too_new(
@@ -73,4 +75,3 @@ def test_ingest_watch_skips_already_ingested_and_too_new(
     payload = json.loads(capsys.readouterr().out)
     assert payload["queued_jobs"] == 0
     assert payload["last_poll"]["skipped_already_ingested"] == 1
-

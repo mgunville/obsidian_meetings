@@ -478,12 +478,16 @@ def _normalize_datetime_string(raw: str) -> str:
     if not value:
         return ""
 
+    if " (" in value and value.endswith(")"):
+        # JXA Date#toString() appends a human-readable zone label in parentheses.
+        value = value.split(" (", 1)[0]
+
     try:
         return datetime.fromisoformat(value.replace("Z", "+00:00")).isoformat()
     except ValueError:
         pass
 
-    for fmt in ("%Y-%m-%d %H:%M:%S %z",):
+    for fmt in ("%Y-%m-%d %H:%M:%S %z", "%a %b %d %Y %H:%M:%S GMT%z"):
         try:
             return datetime.strptime(value, fmt).isoformat()
         except ValueError:

@@ -27,20 +27,36 @@ log_success() {
     echo -e "${GREEN}[SUCCESS]${NC} $1"
 }
 
+pick_python_bin() {
+    local candidate
+    candidate="$(which -a python3.11 2>/dev/null | grep -v '/.pyenv/shims/' | head -n 1 || true)"
+    if [ -n "$candidate" ]; then
+        echo "$candidate"
+        return 0
+    fi
+    candidate="$(which -a python3 2>/dev/null | grep -v '/.pyenv/shims/' | head -n 1 || true)"
+    if [ -n "$candidate" ]; then
+        echo "$candidate"
+        return 0
+    fi
+    return 1
+}
+
 # ============================================================================
 # Setup Virtual Environment
 # ============================================================================
 
 log_info "Setting up virtual environment for Obsidian Meetings..."
 
+PYTHON_BIN="$(pick_python_bin || true)"
+if [ -z "$PYTHON_BIN" ]; then
+    echo "A non-pyenv-shim python3.11 (preferred) or python3 (3.11+) is required."
+    exit 1
+fi
+
 # Create venv if it doesn't exist
 if [ ! -d "$VENV_DIR" ]; then
     log_info "Creating virtual environment..."
-    if command -v python3.11 >/dev/null 2>&1; then
-        PYTHON_BIN="python3.11"
-    else
-        PYTHON_BIN="python3"
-    fi
     "$PYTHON_BIN" -m venv "$VENV_DIR"
     log_success "Virtual environment created"
 else
@@ -49,20 +65,20 @@ fi
 
 # Activate venv
 log_info "Activating virtual environment..."
-source "$VENV_DIR/bin/activate"
+VENV_PY="$VENV_DIR/bin/python"
+VENV_PIP="$VENV_DIR/bin/pip"
 
 # Upgrade pip
 log_info "Upgrading pip..."
-pip install --upgrade pip
-pip install --upgrade setuptools wheel
+"$VENV_PY" -m pip install --upgrade pip setuptools wheel
 
 # Install project dependencies
 if [ -f "$PROJECT_DIR/requirements.txt" ]; then
     log_info "Installing dependencies from requirements.txt..."
-    pip install -r "$PROJECT_DIR/requirements.txt"
+    "$VENV_PIP" install -r "$PROJECT_DIR/requirements.txt"
 else
     log_info "No requirements.txt found. Installing common development dependencies..."
-    pip install \
+    "$VENV_PIP" install \
         python-dateutil \
         pytz \
         pyyaml \
@@ -70,6 +86,15 @@ else
         black \
         pylint \
         pytest
+fi
+
+log_info "Installing Whisper CLI for transcription runs..."
+"$VENV_PIP" install openai-whisper
+
+if "$VENV_PY" -m whisper --help >/dev/null 2>&1; then
+    log_success "Whisper CLI check: OK"
+else
+    echo "[WARN] Whisper CLI not available in .venv; transcription commands will fail."
 fi
 
 log_success "Development environment ready!"

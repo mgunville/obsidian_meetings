@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 import os
 from pathlib import Path
 import re
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from meetingctl.note.identity import (
     build_note_filename,
@@ -23,6 +24,61 @@ def _note_directory() -> Path:
 
 def _local_tz():
     return datetime.now().astimezone().tzinfo or UTC
+
+
+def _recording_filename_tz():
+    tz_name = os.environ.get("MEETINGCTL_RECORDING_FILENAME_TIMEZONE", "").strip()
+    if not tz_name:
+        return _local_tz()
+    try:
+        return ZoneInfo(tz_name)
+    except ZoneInfoNotFoundError:
+        return _local_tz()
+
+
+def _voicememo_filename_tz():
+    tz_name = os.environ.get("MEETINGCTL_VOICEMEMO_FILENAME_TIMEZONE", "").strip()
+    if not tz_name:
+        return _local_tz()
+    try:
+        return ZoneInfo(tz_name)
+    except ZoneInfoNotFoundError:
+        return _local_tz()
+
+
+def _load_incident_voice_memo_entries() -> set[str]:
+    manifest = os.environ.get("MEETINGCTL_VOICEMEMO_UTC_MANIFEST", "").strip()
+    if not manifest:
+        return set()
+    manifest_path = Path(manifest).expanduser()
+    if not manifest_path.exists():
+        return set()
+    entries: set[str] = set()
+    for line in manifest_path.read_text().splitlines():
+        value = line.strip()
+        if not value or value.startswith("#"):
+            continue
+        entries.add(value)
+        entries.add(Path(value).name)
+        entries.add(str(Path(value).expanduser().resolve()))
+    return entries
+
+
+def _is_incident_voice_memo(path: Path) -> bool:
+    entries = _load_incident_voice_memo_entries()
+    if not entries:
+        return False
+    resolved = str(path.expanduser().resolve())
+    return resolved in entries or path.name in entries
+
+
+def _existing_note_for_meeting_id(meeting_id: str) -> Path | None:
+    note_dir = _note_directory()
+    pattern = re.compile(rf" - {re.escape(meeting_id)}(?: \(\d+\))?\.md$")
+    matches = sorted(
+        p for p in note_dir.glob(f"*{meeting_id}*.md") if pattern.search(p.name)
+    )
+    return matches[0] if matches else None
 
 
 def _to_local_naive(iso_value: str) -> datetime:
@@ -46,6 +102,9 @@ def _write_note(
     meeting_id: str,
 ) -> dict[str, str]:
     note_dir = _note_directory()
+    existing_note = _existing_note_for_meeting_id(meeting_id)
+    if existing_note:
+        return {"meeting_id": meeting_id, "note_path": str(existing_note)}
     start_dt = _to_local_naive(start_iso)
     filename = build_note_filename(start_dt=start_dt, title=title, meeting_id=meeting_id)
     note_path = ensure_collision_safe_path(note_dir / filename)
@@ -75,6 +134,9 @@ def preview_note_from_event(
     title = str(event.get("title", "Untitled Meeting"))
     start_iso = str(event.get("start"))
     resolved_meeting_id = meeting_id or generate_meeting_id(title=title, start_iso=start_iso)
+    existing_note = _existing_note_for_meeting_id(resolved_meeting_id)
+    if existing_note:
+        return {"meeting_id": resolved_meeting_id, "note_path": str(existing_note)}
     start_dt = _to_local_naive(start_iso)
     filename = build_note_filename(start_dt=start_dt, title=title, meeting_id=resolved_meeting_id)
     note_path = ensure_collision_safe_path(_note_directory() / filename)
@@ -138,11 +200,22 @@ def create_adhoc_note(
 
 def infer_datetime_from_recording_path(path: Path) -> tuple[datetime, str]:
     tz = _local_tz()
+    filename_tz = _recording_filename_tz()
+    voice_memo_match = re.search(r"(\d{8})\s+(\d{6})", path.stem)
+    if voice_memo_match:
+        stamp = f"{voice_memo_match.group(1)}{voice_memo_match.group(2)}"
+        try:
+            voice_memo_tz = UTC if _is_incident_voice_memo(path) else _voicememo_filename_tz()
+            return datetime.strptime(stamp, "%Y%m%d%H%M%S").replace(
+                tzinfo=voice_memo_tz
+            ), "filename_voice_memo"
+        except ValueError:
+            pass
     match = re.search(r"(\d{8})[_-](\d{4})", path.stem)
     if match:
         stamp = f"{match.group(1)}{match.group(2)}"
         try:
-            return datetime.strptime(stamp, "%Y%m%d%H%M").replace(tzinfo=tz), "filename"
+            return datetime.strptime(stamp, "%Y%m%d%H%M").replace(tzinfo=filename_tz), "filename"
         except ValueError:
             pass
     stat = path.stat()

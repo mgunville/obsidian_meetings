@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -108,4 +109,43 @@ def test_generate_summary_fails_when_no_text_block(mock_anthropic_class: MagicMo
     mock_client.messages.create.return_value = mock_response
 
     with pytest.raises(RuntimeError, match="did not include a text content block"):
+        generate_summary("Test transcript", api_key="test-key")
+
+
+@patch("meetingctl.summary_client.anthropic.Anthropic")
+def test_generate_summary_falls_back_when_model_not_found(
+    mock_anthropic_class: MagicMock, monkeypatch
+) -> None:
+    mock_client = MagicMock()
+    mock_anthropic_class.return_value = mock_client
+
+    def _create(**kwargs):
+        model = kwargs.get("model")
+        if model == "bad-model":
+            raise RuntimeError(
+                "Error code: 404 - {'type':'error','error':{'type':'not_found_error','message':'model: bad-model'}}"
+            )
+        response = MagicMock()
+        response.content = [SimpleNamespace(text='{"minutes":"ok","decisions":[],"action_items":[]}')]
+        return response
+
+    mock_client.messages.create.side_effect = _create
+    monkeypatch.setenv("MEETINGCTL_SUMMARY_MODEL", "bad-model,claude-3-5-sonnet-latest")
+
+    result = generate_summary("Test transcript", api_key="test-key")
+    assert result["minutes"] == "ok"
+
+
+@patch("meetingctl.summary_client.anthropic.Anthropic")
+def test_generate_summary_errors_when_all_models_not_found(
+    mock_anthropic_class: MagicMock, monkeypatch
+) -> None:
+    mock_client = MagicMock()
+    mock_anthropic_class.return_value = mock_client
+    mock_client.messages.create.side_effect = RuntimeError(
+        "Error code: 404 - {'type':'error','error':{'type':'not_found_error','message':'model: missing'}}"
+    )
+    monkeypatch.setenv("MEETINGCTL_SUMMARY_MODEL", "missing-a,missing-b")
+
+    with pytest.raises(RuntimeError, match="No configured summary model was available"):
         generate_summary("Test transcript", api_key="test-key")

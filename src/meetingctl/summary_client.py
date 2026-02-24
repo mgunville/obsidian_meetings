@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 import anthropic
 
 from meetingctl.summary_parser import parse_summary_json
@@ -14,6 +16,21 @@ def _extract_text_content(response: object) -> str:
         if isinstance(text, str) and text.strip():
             return text
     raise RuntimeError("LLM response did not include a text content block.")
+
+
+def _summary_model_candidates() -> list[str]:
+    raw = os.environ.get("MEETINGCTL_SUMMARY_MODEL", "").strip()
+    if raw:
+        return [part.strip() for part in raw.split(",") if part.strip()]
+    return [
+        "claude-3-5-sonnet-latest",
+        "claude-3-5-sonnet-20241022",
+    ]
+
+
+def _is_model_not_found_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return "not_found_error" in text and "model:" in text
 
 
 def generate_summary(transcript: str, *, api_key: str) -> dict[str, object]:
@@ -50,16 +67,38 @@ Respond with ONLY a JSON object in this exact format:
 If there are no decisions or action items, use empty arrays.
 """
 
-    response = client.messages.create(
-        model="claude-3-5-sonnet-20241022",
-        max_tokens=1024,
-        messages=[
-            {
-                "role": "user",
-                "content": prompt,
-            }
-        ],
-    )
+    last_exc: Exception | None = None
+    response = None
+    for model in _summary_model_candidates():
+        try:
+            response = client.messages.create(
+                model=model,
+                max_tokens=1024,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": prompt,
+                    }
+                ],
+            )
+            break
+        except Exception as exc:
+            if _is_model_not_found_error(exc):
+                last_exc = exc
+                continue
+            raise
+
+    if response is None:
+        candidate_list = ", ".join(_summary_model_candidates())
+        if last_exc is not None:
+            raise RuntimeError(
+                f"No configured summary model was available ({candidate_list}). "
+                "Set MEETINGCTL_SUMMARY_MODEL to a model your Anthropic account can access."
+            ) from last_exc
+        raise RuntimeError(
+            "No summary model candidates configured. "
+            "Set MEETINGCTL_SUMMARY_MODEL to a valid Anthropic model."
+        )
 
     response_text = _extract_text_content(response)
 

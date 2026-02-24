@@ -1,49 +1,77 @@
 # Hazel Setup
 
-Use Hazel as the first-line file trigger for completed recordings.
+Use Hazel as the first-line trigger for completed recordings from two sources:
 
-## Rule Target
+- local notes audio folder (`~/Notes/audio`)
+- Voice Memos sync folder (typically `~/Library/Group Containers/group.com.apple.VoiceMemos.shared/Recordings`)
+
+Both rules should run the same script so the ingest/transcription/note-append flow stays identical.
+
+## Rule 1: Notes Audio Folder
 
 - Folder: `~/Notes/audio`
-- Rule Name: `MeetingCtl - Ingest WAV`
+- Rule Name: `MeetingCtl - Ingest Notes Audio`
 
-## Conditions
+Conditions:
 
 - `Extension` `is` `wav`
+- `or Extension` `is` `m4a`
 - `Date Last Modified` `is not in the last` `1` `minute`
 - `Name` `does not start with` `.`
 
-Notes:
-- Only trigger on `.wav` to avoid duplicate handling of `.m4a`.
-- The 1-minute guard reduces partial-write races from Audio Hijack.
+## Rule 2: Voice Memos Folder
 
-## Action
+- Preferred Folder: `~/Library/Group Containers/group.com.apple.VoiceMemos.shared/Recordings`
+- Rule Name: `MeetingCtl - Ingest Voice Memos`
 
-- `Run shell script`:
+Conditions:
+
+- `Extension` `is` `m4a`
+- `Date Last Modified` `is not in the last` `1` `minute`
+- `Name` `does not start with` `.`
+
+If your machine syncs Voice Memos into a different iCloud path, point Rule 2 at that folder instead.
+
+## Hazel Action (Both Rules)
+
+- `Run shell script` with input passed as arguments.
 
 ```bash
-bash "/Users/michael.gunville/Library/CloudStorage/OneDrive-AHEADInc(Production)/Documents/Dev/obsidian_meetings/scripts/run_ingest_once.sh" >> "$HOME/.local/state/meetingctl/hazel.log" 2>&1
+bash "/Users/mike/Documents/Dev/agentic_Projects/projects/obsidian_meetings/scripts/hazel_ingest_file.sh" "$1" >> "$HOME/.local/state/meetingctl/hazel.log" 2>&1
 ```
 
 ## Runtime Behavior
 
-- Script loads `.env` and `.venv`.
-- Runs one ingest pass with calendar matching.
-- Processes queue after ingest.
-- Uses lock directory `~/.local/state/meetingctl/automation_ingest.lock` to skip duplicate concurrent triggers.
+- `hazel_ingest_file.sh` accepts the triggered file path from Hazel.
+- It stages files into `RECORDINGS_PATH` (from `.env`) if they originate outside that folder.
+- It accepts `.wav` and `.m4a`.
+- It then runs `scripts/run_ingest_once.sh`:
+  - loads `.env` and `.venv`
+  - runs `ingest-watch --once --match-calendar --json`
+  - runs `process-queue --json`
+- Locking via `~/.local/state/meetingctl/automation_ingest.lock` prevents duplicate concurrent runs.
+
+## Required `.env`
+
+- `RECORDINGS_PATH` should point at your canonical ingest folder (for example `~/Notes/audio`).
 
 ## Optional Tuning (`.env`)
 
 - `MEETINGCTL_MATCH_WINDOW_MINUTES=30`
 - `MEETINGCTL_INGEST_MIN_AGE_SECONDS=15`
-- `MEETINGCTL_BACKFILL_EXTENSIONS=wav`
+- `MEETINGCTL_BACKFILL_EXTENSIONS=wav,m4a`
+- `MEETINGCTL_INGEST_EXTENSIONS=wav,m4a`
 - `MEETINGCTL_AUTOMATION_STATE_DIR=~/.local/state/meetingctl`
+- `MEETINGCTL_VOICEMEMO_FILENAME_TIMEZONE=America/Chicago`
+- `MEETINGCTL_VOICEMEMO_UTC_MANIFEST=~/Notes/audio/voice_memo_utc_manifest.txt` (for one-time timezone incident files)
 
 ## Quick Validation
 
-1. Confirm command works manually:
-   - `bash scripts/run_ingest_once.sh`
-2. Check logs:
+1. Manual script run with a known file:
+   - `bash scripts/hazel_ingest_file.sh "/absolute/path/to/test.m4a"`
+2. Check Hazel log:
    - `tail -n 100 ~/.local/state/meetingctl/hazel.log`
-3. Confirm queue is draining:
-   - `PYTHONPATH=src python -m meetingctl.cli process-queue --json`
+3. Confirm queue processing + artifacts:
+   - `PYTHONPATH=src python3 -m meetingctl.cli process-queue --json`
+4. Audit duplicate meeting notes after bulk runs:
+   - `PYTHONPATH=src python3 -m meetingctl.cli audit-notes --json`

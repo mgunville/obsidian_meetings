@@ -3,6 +3,9 @@ from datetime import UTC, datetime
 import json
 import os
 from pathlib import Path
+import re
+import shutil
+import sys
 import time
 from typing import Callable
 
@@ -48,6 +51,7 @@ def registered_commands() -> list[str]:
         "process-queue",
         "backfill",
         "ingest-watch",
+        "audit-notes",
     ]
 
 
@@ -104,6 +108,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=_env_str("MEETINGCTL_BACKFILL_EXTENSIONS", "wav"),
     )
     backfill_parser.add_argument("--max-files", type=int, default=0)
+    backfill_parser.add_argument(
+        "--file-list",
+        default="",
+        help="Path to newline-delimited recording file list; when set, only these files are considered.",
+    )
     backfill_parser.add_argument("--process-now", action="store_true")
     backfill_parser.add_argument("--match-calendar", action="store_true")
     backfill_parser.add_argument(
@@ -113,6 +122,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     backfill_parser.add_argument("--rename", action="store_true")
     backfill_parser.add_argument("--dry-run", action="store_true")
+    backfill_parser.add_argument(
+        "--progress",
+        action="store_true",
+        help="Emit per-file progress updates to stderr.",
+    )
+    backfill_parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Emit per-file details to stderr.",
+    )
     backfill_parser.add_argument("--json", action="store_true")
 
     ingest_parser = sub.add_parser("ingest-watch")
@@ -124,6 +143,10 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=_env_int("MEETINGCTL_INGEST_MIN_AGE_SECONDS", 15),
     )
+    ingest_parser.add_argument(
+        "--extensions",
+        default=_env_str("MEETINGCTL_INGEST_EXTENSIONS", "wav,m4a"),
+    )
     ingest_parser.add_argument("--match-calendar", action="store_true")
     ingest_parser.add_argument(
         "--window-minutes",
@@ -132,6 +155,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ingest_parser.add_argument("--process-now", action="store_true")
     ingest_parser.add_argument("--json", action="store_true")
+
+    audit_parser = sub.add_parser("audit-notes")
+    audit_parser.add_argument("--json", action="store_true")
 
     event_parser = sub.add_parser("event")
     event_parser.add_argument("--now-or-next", type=int, default=5)
@@ -356,6 +382,41 @@ def _default_queue_handler(payload: dict[str, object]) -> None:
         fh.write("\n")
 
 
+def _assert_transcription_backend_ready() -> None:
+    def _binary_available(name: str) -> bool:
+        if shutil.which(name) is not None:
+            return True
+        candidates = [
+            Path(sys.executable).parent / name,
+            Path(sys.prefix) / "bin" / name,
+        ]
+        return any(candidate.exists() and os.access(candidate, os.X_OK) for candidate in candidates)
+
+    if os.environ.get("MEETINGCTL_PROCESSING_TRANSCRIBE_DRY_RUN") == "1":
+        return
+    backend = os.environ.get("MEETINGCTL_TRANSCRIPTION_BACKEND", "whisper").strip().lower()
+    allow_fallback = os.environ.get("MEETINGCTL_TRANSCRIPTION_FALLBACK_TO_WHISPER", "1").strip().lower()
+    fallback_enabled = allow_fallback not in {"0", "false", "no"}
+    if backend == "whisperx":
+        has_whisperx = _binary_available("whisperx")
+        has_whisper = _binary_available("whisper")
+        if has_whisperx:
+            return
+        if fallback_enabled and has_whisper:
+            return
+        if fallback_enabled:
+            raise RuntimeError(
+                "Transcription backend unavailable: install `whisperx` or `whisper` in this runtime."
+            )
+        raise RuntimeError(
+            "Transcription backend unavailable: install `whisperx` in this runtime."
+        )
+    if not _binary_available("whisper"):
+        raise RuntimeError(
+            "Transcription backend unavailable: install `whisper` in this runtime."
+        )
+
+
 def _queue_job_payload(payload: dict[str, object]) -> None:
     _queue_process_trigger()(payload)
 
@@ -393,19 +454,29 @@ def _append_ingested_path(log_file: Path, wav_path: Path, meeting_id: str) -> No
 def _ingest_wav_files_once(
     *,
     min_age_seconds: int,
+    extensions: list[str],
     match_calendar: bool,
     window_minutes: int,
     process_now: bool,
 ) -> dict[str, object]:
+    if process_now:
+        _assert_transcription_backend_ready()
     cfg = load_config()
     ingested_log = _ingested_files_log_file()
     seen = _load_ingested_paths(ingested_log)
 
-    wav_files = sorted(
-        (path.resolve() for path in cfg.recordings_path.glob("*.wav")),
+    exts = [ext.lower().lstrip(".") for ext in extensions if ext.strip()]
+    if not exts:
+        exts = ["wav", "m4a"]
+    audio_files = sorted(
+        {
+            path.resolve()
+            for ext in exts
+            for path in cfg.recordings_path.glob(f"*.{ext}")
+        },
         key=lambda path: path.stat().st_mtime,
     )
-    discovered_wav = len(wav_files)
+    discovered_audio = len(audio_files)
     queued_jobs = 0
     processed_jobs = 0
     skipped_already_ingested = 0
@@ -416,18 +487,18 @@ def _ingest_wav_files_once(
     errors: list[dict[str, str]] = []
 
     now_ts = time.time()
-    for wav in wav_files:
-        wav_key = str(wav.resolve())
-        if wav_key in seen:
+    for audio_file in audio_files:
+        audio_key = str(audio_file.resolve())
+        if audio_key in seen:
             skipped_already_ingested += 1
             continue
-        age_seconds = now_ts - wav.stat().st_mtime
+        age_seconds = now_ts - audio_file.stat().st_mtime
         if age_seconds < max(min_age_seconds, 0):
             skipped_too_new += 1
             continue
 
         try:
-            inferred_start, _ = infer_datetime_from_recording_path(wav)
+            inferred_start, _ = infer_datetime_from_recording_path(audio_file)
             matched_event: dict[str, object] | None = None
             if match_calendar:
                 matched_event = resolve_event_near_timestamp(
@@ -442,12 +513,12 @@ def _ingest_wav_files_once(
             note_info = (
                 create_note_from_event(matched_event)
                 if matched_event
-                else create_backfill_note_for_recording(recording_path=wav)
+                else create_backfill_note_for_recording(recording_path=audio_file)
             )
             payload = {
                 "meeting_id": note_info["meeting_id"],
                 "note_path": note_info["note_path"],
-                "wav_path": str(wav),
+                "wav_path": str(audio_file),
             }
             if process_now:
                 _default_queue_handler(payload)
@@ -455,14 +526,15 @@ def _ingest_wav_files_once(
             else:
                 _queue_job_payload(payload)
                 queued_jobs += 1
-            _append_ingested_path(ingested_log, wav, note_info["meeting_id"])
-            seen.add(wav_key)
+            _append_ingested_path(ingested_log, audio_file, note_info["meeting_id"])
+            seen.add(audio_key)
         except Exception as exc:
             failed_jobs += 1
-            errors.append({"recording": str(wav), "error": str(exc)})
+            errors.append({"recording": str(audio_file), "error": str(exc)})
 
     return {
-        "discovered_wav": discovered_wav,
+        "discovered_audio": discovered_audio,
+        "discovered_wav": discovered_audio,
         "queued_jobs": queued_jobs,
         "processed_jobs": processed_jobs,
         "failed_jobs": failed_jobs,
@@ -483,6 +555,7 @@ def _run_ingest_watch(
     poll_seconds: int,
     max_polls: int,
     min_age_seconds: int,
+    extensions: list[str],
     match_calendar: bool,
     window_minutes: int,
     process_now: bool,
@@ -502,6 +575,7 @@ def _run_ingest_watch(
     while True:
         poll_result = _ingest_wav_files_once(
             min_age_seconds=min_age_seconds,
+            extensions=extensions,
             match_calendar=match_calendar,
             window_minutes=window_minutes,
             process_now=process_now,
@@ -529,18 +603,43 @@ def _backfill_recordings(
     *,
     extensions: list[str],
     max_files: int,
+    file_list: str,
     process_now: bool,
     match_calendar: bool,
     window_minutes: int,
     rename: bool,
     dry_run: bool,
+    progress: bool,
+    verbose: bool,
 ) -> dict[str, object]:
+    if process_now and not dry_run:
+        _assert_transcription_backend_ready()
     cfg = load_config()
     exts = [ext.lower().lstrip(".") for ext in extensions if ext.strip()]
+    resolved_file_list = ""
     files: list[Path] = []
-    for ext in exts:
-        files.extend(cfg.recordings_path.glob(f"*.{ext}"))
-    files = sorted({path.resolve() for path in files}, key=lambda path: path.stat().st_mtime)
+    if file_list.strip():
+        manifest_path = Path(file_list).expanduser().resolve()
+        resolved_file_list = str(manifest_path)
+        if not manifest_path.exists():
+            raise ValueError(f"File list does not exist: {manifest_path}")
+        for raw_line in manifest_path.read_text(encoding="utf-8").splitlines():
+            candidate = raw_line.strip()
+            if not candidate or candidate.startswith("#"):
+                continue
+            path = Path(candidate).expanduser()
+            if not path.is_absolute():
+                path = (manifest_path.parent / path).resolve()
+            else:
+                path = path.resolve()
+            if exts and path.suffix.lower().lstrip(".") not in exts:
+                continue
+            files.append(path)
+    else:
+        for ext in exts:
+            files.extend(cfg.recordings_path.glob(f"*.{ext}"))
+        files = sorted(files, key=lambda path: path.stat().st_mtime)
+    files = list(dict.fromkeys(path.resolve() for path in files))
     if max_files > 0:
         files = files[:max_files]
 
@@ -552,6 +651,10 @@ def _backfill_recordings(
     unmatched_calendar = 0
     errors: list[dict[str, str]] = []
     plans: list[dict[str, object]] = []
+    total = len(files)
+
+    def _emit(message: str) -> None:
+        print(message, file=sys.stderr, flush=True)
 
     def _rename_artifact(path: Path, meeting_id: str, dry_run_mode: bool) -> Path:
         target = path.with_name(f"{meeting_id}{path.suffix.lower()}")
@@ -571,15 +674,27 @@ def _backfill_recordings(
                 _rename_artifact(sibling, meeting_id, dry_run_mode)
         return moved_recording
 
-    for recording in files:
+    if progress:
+        _emit(f"backfill progress: 0/{total}")
+
+    for index, recording in enumerate(files, start=1):
         stem = recording.stem
         transcript = cfg.recordings_path / f"{stem}.txt"
         mp3 = cfg.recordings_path / f"{stem}.mp3"
         if transcript.exists() and mp3.exists():
             skipped_existing += 1
+            if verbose:
+                _emit(f"backfill skip existing: {recording}")
+            if progress:
+                _emit(
+                    f"backfill progress: {index}/{total} "
+                    f"(processed={processed_jobs} failed={failed_jobs} skipped={skipped_existing})"
+                )
             continue
 
         try:
+            if verbose:
+                _emit(f"backfill processing: {recording}")
             inferred_start, inferred_source = infer_datetime_from_recording_path(recording)
             matched_event: dict[str, object] | None = None
             if match_calendar:
@@ -646,9 +761,21 @@ def _backfill_recordings(
                 else:
                     _queue_job_payload(payload)
                     queued_jobs += 1
+            if progress:
+                _emit(
+                    f"backfill progress: {index}/{total} "
+                    f"(processed={processed_jobs} failed={failed_jobs} skipped={skipped_existing})"
+                )
         except Exception as exc:
             failed_jobs += 1
             errors.append({"recording": str(recording), "error": str(exc)})
+            if verbose:
+                _emit(f"backfill error: {recording} :: {exc}")
+            if progress:
+                _emit(
+                    f"backfill progress: {index}/{total} "
+                    f"(processed={processed_jobs} failed={failed_jobs} skipped={skipped_existing})"
+                )
 
     return {
         "discovered_files": len(files),
@@ -663,6 +790,7 @@ def _backfill_recordings(
         "rename": rename,
         "dry_run": dry_run,
         "extensions": exts,
+        "file_list": resolved_file_list,
         "plans": plans,
         "errors": errors,
     }
@@ -682,6 +810,40 @@ def _format_doctor_human(payload: dict[str, object]) -> str:
         if hint:
             lines.append(f"  hint: {hint}")
     return "\n".join(lines)
+
+
+def _audit_notes_duplicates() -> dict[str, object]:
+    vault_path = Path(os.environ.get("VAULT_PATH", ".")).expanduser().resolve()
+    meetings_folder = Path(os.environ.get("DEFAULT_MEETINGS_FOLDER", "meetings"))
+    note_dir = (vault_path / meetings_folder).resolve()
+    if not note_dir.exists():
+        return {
+            "discovered_notes": 0,
+            "unique_meeting_ids": 0,
+            "duplicate_meeting_ids": 0,
+            "duplicates": [],
+        }
+
+    pattern = re.compile(r"(m-[0-9a-f]{10})")
+    by_meeting_id: dict[str, list[str]] = {}
+    for note_path in sorted(note_dir.glob("*.md")):
+        match = pattern.search(note_path.name)
+        if not match:
+            continue
+        meeting_id = match.group(1)
+        by_meeting_id.setdefault(meeting_id, []).append(str(note_path))
+
+    duplicates = [
+        {"meeting_id": meeting_id, "note_paths": paths}
+        for meeting_id, paths in sorted(by_meeting_id.items())
+        if len(paths) > 1
+    ]
+    return {
+        "discovered_notes": len(list(note_dir.glob("*.md"))),
+        "unique_meeting_ids": len(by_meeting_id),
+        "duplicate_meeting_ids": len(duplicates),
+        "duplicates": duplicates,
+    }
 
 
 def main() -> int:
@@ -789,11 +951,14 @@ def main() -> int:
             payload = _backfill_recordings(
                 extensions=extensions or ["wav"],
                 max_files=max(args.max_files, 0),
+                file_list=args.file_list,
                 process_now=args.process_now,
                 match_calendar=args.match_calendar,
                 window_minutes=args.window_minutes,
                 rename=args.rename,
                 dry_run=args.dry_run,
+                progress=args.progress,
+                verbose=args.verbose,
             )
         except Exception as exc:
             _print_payload({"error": str(exc)}, args.json)
@@ -802,15 +967,25 @@ def main() -> int:
         return 0
     if args.command == "ingest-watch":
         try:
+            extensions = [value.strip() for value in args.extensions.split(",") if value.strip()]
             payload = _run_ingest_watch(
                 once=args.once,
                 poll_seconds=args.poll_seconds,
                 max_polls=args.max_polls,
                 min_age_seconds=max(args.min_age_seconds, 0),
+                extensions=extensions or ["wav", "m4a"],
                 match_calendar=args.match_calendar,
                 window_minutes=args.window_minutes,
                 process_now=args.process_now,
             )
+        except Exception as exc:
+            _print_payload({"error": str(exc)}, args.json)
+            return 2
+        _print_payload(payload, args.json)
+        return 0
+    if args.command == "audit-notes":
+        try:
+            payload = _audit_notes_duplicates()
         except Exception as exc:
             _print_payload({"error": str(exc)}, args.json)
             return 2

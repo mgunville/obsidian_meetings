@@ -1,5 +1,5 @@
 {
-  "error": "JXA backend unavailable on this machine.",
-  "backend": "jxa",
+  "error": "icalBuddy backend unavailable on this machine.",
+  "backend": "icalbuddy",
   "hint": "Run `meetingctl doctor` and verify calendar permissions/backends."
 }
