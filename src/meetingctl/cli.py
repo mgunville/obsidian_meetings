@@ -353,6 +353,10 @@ def _convert_for_processing(wav_path: Path, mp3_path: Path) -> Path:
     # Preserve non-WAV sources (e.g., Voice Memos m4a) as canonical artifacts.
     if wav_path.suffix.lower() != ".wav":
         return wav_path
+    sibling_m4a = wav_path.with_suffix(".m4a")
+    if sibling_m4a.exists():
+        wav_path.unlink(missing_ok=True)
+        return sibling_m4a
     if os.environ.get("MEETINGCTL_PROCESSING_CONVERT_DRY_RUN") == "1":
         mp3_path.parent.mkdir(parents=True, exist_ok=True)
         mp3_path.write_text("dry-run mp3")
