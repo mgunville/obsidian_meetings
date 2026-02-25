@@ -149,3 +149,38 @@ def test_generate_summary_errors_when_all_models_not_found(
 
     with pytest.raises(RuntimeError, match="No configured summary model was available"):
         generate_summary("Test transcript", api_key="test-key")
+
+
+@patch("meetingctl.summary_client.anthropic.Anthropic")
+def test_generate_summary_accepts_fenced_json_response(mock_anthropic_class: MagicMock) -> None:
+    mock_client = MagicMock()
+    mock_anthropic_class.return_value = mock_client
+    mock_response = MagicMock()
+    mock_response.content = [
+        SimpleNamespace(
+            text="""Here is the summary:
+```json
+{"minutes":"ok","decisions":[],"action_items":[]}
+```"""
+        )
+    ]
+    mock_client.messages.create.return_value = mock_response
+
+    result = generate_summary("Test transcript", api_key="test-key")
+    assert result["minutes"] == "ok"
+
+
+@patch("meetingctl.summary_client.anthropic.Anthropic")
+def test_generate_summary_accepts_prose_wrapped_json(mock_anthropic_class: MagicMock) -> None:
+    mock_client = MagicMock()
+    mock_anthropic_class.return_value = mock_client
+    mock_response = MagicMock()
+    mock_response.content = [
+        SimpleNamespace(
+            text='Summary follows: {"minutes":"ok","decisions":[],"action_items":[]} thanks.'
+        )
+    ]
+    mock_client.messages.create.return_value = mock_response
+
+    result = generate_summary("Test transcript", api_key="test-key")
+    assert result["minutes"] == "ok"

@@ -24,17 +24,16 @@ The Meeting Automation system provides one-keystroke UX for:
    - See `README.md` for installation steps
 
 3. **Python virtual environment** (required)
-   - Create at `~/.venv-meetingctl/`
+   - Use repo-local `.venv`
    - Install meetingctl in this venv
 
 ### Setup Steps
 
 1. **Install meetingctl**
    ```bash
-   python3.11 -m venv ~/.venv-meetingctl
-   source ~/.venv-meetingctl/bin/activate
-   cd /path/to/obsidian_meetings
-   pip install -e .
+   cd /Users/mike/Documents/Dev/agentic_Projects/projects/obsidian_meetings
+   bash install.sh
+   source .venv/bin/activate
    ```
 
 2. **Import Keyboard Maestro macros**
@@ -44,9 +43,10 @@ The Meeting Automation system provides one-keystroke UX for:
 
 3. **Verify installation**
    ```bash
-   source ~/.venv-meetingctl/bin/activate
-   meetingctl --help
-   meetingctl status --json
+   cd /Users/mike/Documents/Dev/agentic_Projects/projects/obsidian_meetings
+   set -a; source .env; set +a
+   PYTHONPATH=src ./.venv/bin/python -m meetingctl.cli --help
+   PYTHONPATH=src ./.venv/bin/python -m meetingctl.cli status --json
    ```
 
 4. **Configure hotkeys** (optional)
@@ -141,14 +141,13 @@ The Meeting Automation system provides one-keystroke UX for:
 ### "Command not found" error
 
 1. **Check virtual environment path**
-   - Macros expect `~/.venv-meetingctl/`
+   - Macros should call repo-local `.venv`
    - If different, edit shell script actions in KM Editor
 
 2. **Verify meetingctl is installed**
    ```bash
-   source ~/.venv-meetingctl/bin/activate
-   which meetingctl
-   meetingctl --help
+   cd /Users/mike/Documents/Dev/agentic_Projects/projects/obsidian_meetings
+   PYTHONPATH=src ./.venv/bin/python -m meetingctl.cli --help
    ```
 
 ### Recording doesn't start
@@ -160,8 +159,9 @@ The Meeting Automation system provides one-keystroke UX for:
 
 2. **Run doctor command**
    ```bash
-   source ~/.venv-meetingctl/bin/activate
-   meetingctl doctor
+   cd /Users/mike/Documents/Dev/agentic_Projects/projects/obsidian_meetings
+   set -a; source .env; set +a
+   PYTHONPATH=src ./.venv/bin/python -m meetingctl.cli doctor --json
    ```
 
 ### No notifications appear
@@ -188,13 +188,16 @@ The auto-detect macro can prompt you to start recording when Zoom or Teams activ
 
 **Warning:** This can be disruptive if you open Zoom/Teams for non-meeting purposes.
 
-### Customizing Virtual Environment Path
+### Customizing Runtime Path
 
-If you use a different venv path:
+If this repo lives in a different location:
 
 1. Open Keyboard Maestro Editor
 2. Edit each macro's shell script action
-3. Change `~/.venv-meetingctl/` to your path
+3. Update paths to repo-local command form:
+   - `cd <repo>`
+   - `set -a; source .env; set +a`
+   - `PYTHONPATH=src ./.venv/bin/python -m meetingctl.cli ...`
 4. Save changes
 
 ## Next Steps
@@ -207,5 +210,5 @@ If you use a different venv path:
 
 For issues or questions:
 - Check `README.md` for detailed setup instructions
-- Run `meetingctl doctor` for diagnostic information
+- Run `PYTHONPATH=src ./.venv/bin/python -m meetingctl.cli doctor --json` for diagnostics
 - Review error messages in notifications for specific guidance

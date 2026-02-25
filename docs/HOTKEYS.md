@@ -129,8 +129,9 @@ After customization:
 1. **Test each macro individually**
    ```bash
    # Verify CLI still works
-   source ~/.venv-meetingctl/bin/activate
-   meetingctl status --json
+   cd /Users/mike/Documents/Dev/agentic_Projects/projects/obsidian_meetings
+   set -a; source .env; set +a
+   PYTHONPATH=src ./.venv/bin/python -m meetingctl.cli status --json
    ```
 
 2. **Test in different apps**

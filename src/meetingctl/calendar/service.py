@@ -164,6 +164,32 @@ def resolve_event_near_timestamp(
     jxa: JXABackend | None = None,
     icalbuddy: ICalBuddyBackend | None = None,
 ) -> dict[str, object] | None:
+    candidates = resolve_event_candidates_near_timestamp(
+        at=at,
+        window_minutes=window_minutes,
+        max_candidates=25,
+        eventkit=eventkit,
+        jxa=jxa,
+        icalbuddy=icalbuddy,
+    )
+    if not candidates:
+        return None
+    best_distance = float(candidates[0].get("match_distance_minutes", 0.0))
+    best = [candidate for candidate in candidates if abs(float(candidate.get("match_distance_minutes", 0.0)) - best_distance) < 0.01]
+    if len(best) != 1:
+        return None
+    return best[0]
+
+
+def resolve_event_candidates_near_timestamp(
+    *,
+    at: datetime,
+    window_minutes: int,
+    max_candidates: int = 5,
+    eventkit: EventKitBackend | None = None,
+    jxa: JXABackend | None = None,
+    icalbuddy: ICalBuddyBackend | None = None,
+) -> list[dict[str, object]]:
     eventkit = eventkit or EventKitBackend()
     jxa = jxa or JXABackend()
     icalbuddy = icalbuddy or ICalBuddyBackend()
@@ -195,24 +221,23 @@ def resolve_event_near_timestamp(
             candidates.append((distance_minutes, event, start, end))
 
     if not candidates:
-        return None
+        return []
 
     candidates.sort(key=lambda row: (row[0], row[2], str(row[1].get("title", ""))))
-    best_distance = candidates[0][0]
-    best = [candidate for candidate in candidates if abs(candidate[0] - best_distance) < 0.01]
-    if len(best) != 1:
-        return None
-
-    _, selected, _, _ = best[0]
-    join_url = _infer_join_url(selected)
-    return {
-        "title": selected.get("title"),
-        "start": selected.get("start"),
-        "end": selected.get("end"),
-        "calendar_name": selected.get("calendar_name"),
-        "join_url": join_url,
-        "platform": _infer_platform(join_url),
-        "backend": backend,
-        "fallback_used": fallback_used,
-        "match_distance_minutes": round(best_distance, 2),
-    }
+    payloads: list[dict[str, object]] = []
+    for distance, selected, _, _ in candidates[: max(max_candidates, 1)]:
+        join_url = _infer_join_url(selected)
+        payloads.append(
+            {
+                "title": selected.get("title"),
+                "start": selected.get("start"),
+                "end": selected.get("end"),
+                "calendar_name": selected.get("calendar_name"),
+                "join_url": join_url,
+                "platform": _infer_platform(join_url),
+                "backend": backend,
+                "fallback_used": fallback_used,
+                "match_distance_minutes": round(distance, 2),
+            }
+        )
+    return payloads

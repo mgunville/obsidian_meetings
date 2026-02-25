@@ -50,3 +50,8 @@ tags:
 <!-- TRANSCRIPT_START -->
 > _Pending_
 <!-- TRANSCRIPT_END -->
+
+## References
+<!-- REFERENCES_START -->
+> _Pending_
+<!-- REFERENCES_END -->

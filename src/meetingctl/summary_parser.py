@@ -41,6 +41,6 @@ def summary_to_patch_regions(parsed_summary: dict[str, object]) -> dict[str, str
         "minutes": str(parsed_summary["minutes"]),
         "decisions": "\n".join(f"- {item}" for item in decisions) if decisions else "> _Pending_",
         "action_items": (
-            "\n".join(f"- {item}" for item in action_items) if action_items else "> _Pending_"
+            "\n".join(f"- [ ] {item}" for item in action_items) if action_items else "> _Pending_"
         ),
     }

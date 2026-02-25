@@ -231,3 +231,96 @@ def test_backfill_cli_progress_writes_to_stderr(monkeypatch, tmp_path: Path, cap
     assert payload["discovered_files"] == 1
     assert "backfill progress: 0/1" in captured.err
     assert "backfill progress: 1/1" in captured.err
+
+
+def test_backfill_cli_review_calendar_can_skip_file(monkeypatch, tmp_path: Path, capsys) -> None:
+    recordings = tmp_path / "recordings"
+    recordings.mkdir(parents=True, exist_ok=True)
+    vault = tmp_path / "vault"
+    vault.mkdir(parents=True, exist_ok=True)
+    (recordings / "20260208_1015-team-sync.wav").write_text("wav")
+    manifest = tmp_path / "manifest.txt"
+    manifest.write_text(str(recordings / "20260208_1015-team-sync.wav") + "\n")
+
+    monkeypatch.setenv("RECORDINGS_PATH", str(recordings))
+    monkeypatch.setenv("VAULT_PATH", str(vault))
+    monkeypatch.setenv("DEFAULT_MEETINGS_FOLDER", "meetings")
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda *_args, **_kwargs: "s")
+    monkeypatch.setattr(
+        cli,
+        "resolve_event_candidates_near_timestamp",
+        lambda **_kwargs: [
+            {
+                "title": "Team Sync",
+                "start": "2026-02-08T10:15:00+00:00",
+                "end": "2026-02-08T10:45:00+00:00",
+                "calendar_name": "Work",
+                "join_url": "",
+                "platform": "teams",
+                "match_distance_minutes": 0.0,
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "meetingctl",
+            "backfill",
+            "--extensions",
+            "wav",
+            "--file-list",
+            str(manifest),
+            "--review-calendar",
+            "--dry-run",
+            "--json",
+        ],
+    )
+
+    assert cli.main() == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["discovered_files"] == 1
+    assert payload["skipped_manual"] == 1
+    assert payload["queued_jobs"] == 0
+    assert payload["processed_jobs"] == 0
+
+
+def test_backfill_cli_exports_unmatched_manifest(monkeypatch, tmp_path: Path, capsys) -> None:
+    recordings = tmp_path / "recordings"
+    recordings.mkdir(parents=True, exist_ok=True)
+    vault = tmp_path / "vault"
+    vault.mkdir(parents=True, exist_ok=True)
+    queue = tmp_path / "queue.jsonl"
+    wav = recordings / "20260208_1015-team-sync.wav"
+    wav.write_text("wav")
+    manifest = tmp_path / "manifest.txt"
+    manifest.write_text(str(wav) + "\n")
+    out_manifest = tmp_path / "unmatched.txt"
+
+    monkeypatch.setenv("RECORDINGS_PATH", str(recordings))
+    monkeypatch.setenv("VAULT_PATH", str(vault))
+    monkeypatch.setenv("DEFAULT_MEETINGS_FOLDER", "meetings")
+    monkeypatch.setenv("MEETINGCTL_PROCESS_QUEUE_FILE", str(queue))
+    monkeypatch.setattr(cli, "resolve_event_near_timestamp", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "meetingctl",
+            "backfill",
+            "--extensions",
+            "wav",
+            "--file-list",
+            str(manifest),
+            "--match-calendar",
+            "--export-unmatched-manifest",
+            str(out_manifest),
+            "--json",
+        ],
+    )
+
+    assert cli.main() == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["unmatched_calendar"] == 1
+    assert payload["unmatched_recordings"] == 1
+    assert payload["exported_unmatched_manifest"] == str(out_manifest.resolve())
+    assert out_manifest.read_text().strip() == str(wav.resolve())

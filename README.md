@@ -54,6 +54,7 @@ Install separately:
 
 ## Documentation
 - `docs/DOCS_INDEX.md` (canonical docs entrypoint)
+- `docs/OPERATIONS_RUNBOOK.md` (batch commands + maintenance tasks)
 - `docs/OUTSTANDING_TASKS.md` (single active task list)
 - `docs/SETUP_AND_DEPENDENCIES.md`
 - `docs/HAZEL_SETUP.md`

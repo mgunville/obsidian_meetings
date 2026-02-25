@@ -18,6 +18,7 @@ from meetingctl.commands import (
 )
 from meetingctl.calendar.service import (
     CalendarResolutionError,
+    resolve_event_candidates_near_timestamp,
     resolve_event_near_timestamp,
     resolve_now_or_next_event,
 )
@@ -115,6 +116,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
     backfill_parser.add_argument("--process-now", action="store_true")
     backfill_parser.add_argument("--match-calendar", action="store_true")
+    backfill_parser.add_argument(
+        "--export-unmatched-manifest",
+        default="",
+        help="Write unmatched recording paths to this manifest file.",
+    )
+    backfill_parser.add_argument(
+        "--review-calendar",
+        action="store_true",
+        help="Interactive per-file calendar confirmation/selection.",
+    )
+    backfill_parser.add_argument(
+        "--review-max-candidates",
+        type=int,
+        default=5,
+        help="Maximum event candidates shown per file in --review-calendar mode.",
+    )
     backfill_parser.add_argument(
         "--window-minutes",
         type=int,
@@ -275,7 +292,7 @@ def _process_context_from_payload(payload: dict[str, object]) -> ProcessContext:
         note_path=_require_payload_str(payload, "note_path"),
         vault_path=cfg.vault_path,
     )
-    transcript_path = cfg.recordings_path / f"{meeting_id}.txt"
+    transcript_path = _preferred_transcript_path(meeting_id=meeting_id, cfg=cfg)
     wav_path = _resolve_wav_path(
         payload=payload,
         recordings_path=cfg.recordings_path,
@@ -291,6 +308,27 @@ def _process_context_from_payload(payload: dict[str, object]) -> ProcessContext:
     )
 
 
+def _text_artifacts_in_vault_enabled() -> bool:
+    value = os.environ.get("MEETINGCTL_TEXT_ARTIFACTS_IN_VAULT", "1").strip().lower()
+    return value not in {"0", "false", "no"}
+
+
+def _vault_artifact_dir(*, meeting_id: str) -> Path:
+    meetings_folder = os.environ.get("DEFAULT_MEETINGS_FOLDER", "meetings").strip() or "meetings"
+    return (
+        Path(os.environ.get("VAULT_PATH", ".")).expanduser().resolve()
+        / meetings_folder
+        / "_artifacts"
+        / meeting_id
+    )
+
+
+def _preferred_transcript_path(*, meeting_id: str, cfg) -> Path:
+    if _text_artifacts_in_vault_enabled():
+        return _vault_artifact_dir(meeting_id=meeting_id) / f"{meeting_id}.txt"
+    return cfg.recordings_path / f"{meeting_id}.txt"
+
+
 def _summary_from_transcript(transcript_path: Path) -> dict[str, object]:
     fixture = os.environ.get("MEETINGCTL_PROCESSING_SUMMARY_JSON")
     if fixture:
@@ -304,14 +342,17 @@ def _transcribe_for_processing(
     wav_path: Path,
     transcript_path: Path,
 ) -> Path:
+    transcript_path.parent.mkdir(parents=True, exist_ok=True)
     if os.environ.get("MEETINGCTL_PROCESSING_TRANSCRIBE_DRY_RUN") == "1":
-        transcript_path.parent.mkdir(parents=True, exist_ok=True)
         transcript_path.write_text("dry-run transcript")
         return transcript_path
     return transcript_runner.transcribe(wav_path=wav_path, transcript_path=transcript_path)
 
 
 def _convert_for_processing(wav_path: Path, mp3_path: Path) -> Path:
+    # Preserve non-WAV sources (e.g., Voice Memos m4a) as canonical artifacts.
+    if wav_path.suffix.lower() != ".wav":
+        return wav_path
     if os.environ.get("MEETINGCTL_PROCESSING_CONVERT_DRY_RUN") == "1":
         mp3_path.parent.mkdir(parents=True, exist_ok=True)
         mp3_path.write_text("dry-run mp3")
@@ -323,22 +364,35 @@ def _convert_for_processing(wav_path: Path, mp3_path: Path) -> Path:
     )
 
 
-def _artifact_status_region(result: ProcessResult) -> str:
-    transcript_path = result.transcript_path
+def _artifact_status_region(transcript_path: Path) -> str:
+    if transcript_path.exists():
+        transcript_body = transcript_path.read_text(encoding="utf-8", errors="replace").strip()
+        if transcript_body:
+            return f"```text\n{transcript_body}\n```"
+    return "> _Transcript file is empty._"
+
+
+def _references_region(transcript_path: Path, audio_path: Path) -> str:
     transcript_srt_path = transcript_path.with_suffix(".srt")
     transcript_json_path = transcript_path.with_suffix(".json")
-    mp3_path = result.mp3_path
-    lines = [f"- transcript_path: {transcript_path}"]
-    if transcript_srt_path.exists():
-        lines.append(f"- transcript_srt_path: {transcript_srt_path}")
-    else:
-        lines.append("- transcript_srt_path: (not generated)")
-    if transcript_json_path.exists():
-        lines.append(f"- transcript_json_path: {transcript_json_path}")
-    else:
-        lines.append("- transcript_json_path: (not generated)")
-    lines.append(f"- mp3_path: {mp3_path}")
-    status = "complete" if transcript_path.exists() and mp3_path.exists() else "partial"
+    meetings_folder = os.environ.get("DEFAULT_MEETINGS_FOLDER", "meetings").strip() or "meetings"
+    artifact_root = Path(os.environ.get("VAULT_PATH", ".")).expanduser().resolve() / meetings_folder
+
+    def _link(path: Path) -> str:
+        if path.exists():
+            try:
+                rel = path.resolve().relative_to(artifact_root.resolve())
+                rel_str = str(rel)
+                return f"[{rel_str}]({rel_str})"
+            except Exception:
+                pass
+        return str(path)
+
+    lines = [f"- transcript_txt: {_link(transcript_path)}"]
+    lines.append(f"- transcript_srt: {_link(transcript_srt_path)}" if transcript_srt_path.exists() else "- transcript_srt: (not generated)")
+    lines.append(f"- transcript_json: {_link(transcript_json_path)}" if transcript_json_path.exists() else "- transcript_json: (not generated)")
+    lines.append(f"- audio: {_link(audio_path)}")
+    status = "complete" if transcript_path.exists() and audio_path.exists() else "partial"
     lines.append(f"- status: {status}")
     return "\n".join(lines)
 
@@ -363,7 +417,15 @@ def _default_queue_handler(payload: dict[str, object]) -> None:
     )
     patch_note_file(
         note_path=result.note_path,
-        updates={"transcript": _artifact_status_region(result)},
+        updates=(
+            {
+                "transcript": _artifact_status_region(result.transcript_path),
+                "references": _references_region(result.transcript_path, result.mp3_path),
+            }
+            if "<!-- REFERENCES_START -->" in result.note_path.read_text(encoding="utf-8", errors="replace")
+            and "<!-- REFERENCES_END -->" in result.note_path.read_text(encoding="utf-8", errors="replace")
+            else {"transcript": _artifact_status_region(result.transcript_path)}
+        ),
         dry_run=False,
     )
 
@@ -606,6 +668,9 @@ def _backfill_recordings(
     file_list: str,
     process_now: bool,
     match_calendar: bool,
+    export_unmatched_manifest: str,
+    review_calendar: bool,
+    review_max_candidates: int,
     window_minutes: int,
     rename: bool,
     dry_run: bool,
@@ -614,6 +679,8 @@ def _backfill_recordings(
 ) -> dict[str, object]:
     if process_now and not dry_run:
         _assert_transcription_backend_ready()
+    if review_calendar and not sys.stdin.isatty():
+        raise ValueError("--review-calendar requires an interactive terminal.")
     cfg = load_config()
     exts = [ext.lower().lstrip(".") for ext in extensions if ext.strip()]
     resolved_file_list = ""
@@ -649,12 +716,66 @@ def _backfill_recordings(
     skipped_existing = 0
     matched_calendar = 0
     unmatched_calendar = 0
+    skipped_manual = 0
     errors: list[dict[str, str]] = []
     plans: list[dict[str, object]] = []
+    unmatched_recordings: list[str] = []
     total = len(files)
 
     def _emit(message: str) -> None:
         print(message, file=sys.stderr, flush=True)
+
+    def _prompt_calendar_decision(
+        *,
+        recording: Path,
+        inferred_start: datetime,
+        auto_match: dict[str, object] | None,
+        candidates: list[dict[str, object]],
+    ) -> tuple[dict[str, object] | None, str | None, bool]:
+        print("\n" + "=" * 72, file=sys.stderr)
+        print(f"Recording: {recording}", file=sys.stderr)
+        print(f"Inferred start: {inferred_start.isoformat()}", file=sys.stderr)
+        if auto_match:
+            print(
+                "Auto match: "
+                f"{auto_match.get('title', '(untitled)')} "
+                f"[{auto_match.get('start', '')} -> {auto_match.get('end', '')}] "
+                f"d={auto_match.get('match_distance_minutes', '?')}m",
+                file=sys.stderr,
+            )
+        else:
+            print("Auto match: none", file=sys.stderr)
+        if candidates:
+            print("Candidates:", file=sys.stderr)
+            for idx, candidate in enumerate(candidates, start=1):
+                print(
+                    f"  {idx}. {candidate.get('title', '(untitled)')} "
+                    f"[{candidate.get('start', '')} -> {candidate.get('end', '')}] "
+                    f"cal={candidate.get('calendar_name', '')} "
+                    f"d={candidate.get('match_distance_minutes', '?')}m",
+                    file=sys.stderr,
+                )
+        else:
+            print("Candidates: none", file=sys.stderr)
+
+        while True:
+            choice = input(
+                "Select [1-N] calendar event, [a]d hoc title, [s]kip, "
+                "or Enter for auto/ad hoc: "
+            ).strip()
+            if not choice:
+                return auto_match, None, False
+            lowered = choice.lower()
+            if lowered in {"s", "skip"}:
+                return None, None, True
+            if lowered in {"a", "adhoc", "ad-hoc"}:
+                manual_title = input("Ad hoc meeting title (blank = filename): ").strip()
+                return None, manual_title or None, False
+            if choice.isdigit():
+                idx = int(choice)
+                if 1 <= idx <= len(candidates):
+                    return candidates[idx - 1], None, False
+            print("Invalid selection. Try again.", file=sys.stderr)
 
     def _rename_artifact(path: Path, meeting_id: str, dry_run_mode: bool) -> Path:
         target = path.with_name(f"{meeting_id}{path.suffix.lower()}")
@@ -697,6 +818,7 @@ def _backfill_recordings(
                 _emit(f"backfill processing: {recording}")
             inferred_start, inferred_source = infer_datetime_from_recording_path(recording)
             matched_event: dict[str, object] | None = None
+            manual_title: str | None = None
             if match_calendar:
                 matched_event = resolve_event_near_timestamp(
                     at=inferred_start,
@@ -706,13 +828,37 @@ def _backfill_recordings(
                     matched_calendar += 1
                 else:
                     unmatched_calendar += 1
+                    unmatched_recordings.append(str(recording))
+            if review_calendar:
+                candidates = resolve_event_candidates_near_timestamp(
+                    at=inferred_start,
+                    window_minutes=max(window_minutes, 0),
+                    max_candidates=max(review_max_candidates, 1),
+                )
+                matched_event, manual_title, skipped = _prompt_calendar_decision(
+                    recording=recording,
+                    inferred_start=inferred_start,
+                    auto_match=matched_event,
+                    candidates=candidates,
+                )
+                if skipped:
+                    skipped_manual += 1
+                    if progress:
+                        _emit(
+                            f"backfill progress: {index}/{total} "
+                            f"(processed={processed_jobs} failed={failed_jobs} skipped={skipped_existing + skipped_manual})"
+                        )
+                    continue
 
             if dry_run:
                 simulated_event = (
                     matched_event
                     if matched_event
                     else {
-                        "title": recording.stem.replace("_", " ").replace("-", " ").strip()
+                        "title": (
+                            manual_title
+                            or recording.stem.replace("_", " ").replace("-", " ").strip()
+                        )
                         or "Backfill Meeting",
                         "start": inferred_start.isoformat(),
                         "end": inferred_start.isoformat(),
@@ -723,7 +869,10 @@ def _backfill_recordings(
                 note_info = (
                     create_note_from_event(matched_event)
                     if matched_event
-                    else create_backfill_note_for_recording(recording_path=recording)
+                    else create_backfill_note_for_recording(
+                        recording_path=recording,
+                        title=manual_title,
+                    )
                 )
             meeting_id = note_info["meeting_id"]
             resolved_recording = recording
@@ -777,6 +926,13 @@ def _backfill_recordings(
                     f"(processed={processed_jobs} failed={failed_jobs} skipped={skipped_existing})"
                 )
 
+    exported_unmatched_manifest = ""
+    if export_unmatched_manifest.strip():
+        manifest_path = Path(export_unmatched_manifest).expanduser().resolve()
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path.write_text("\n".join(unmatched_recordings) + ("\n" if unmatched_recordings else ""))
+        exported_unmatched_manifest = str(manifest_path)
+
     return {
         "discovered_files": len(files),
         "queued_jobs": queued_jobs,
@@ -787,6 +943,11 @@ def _backfill_recordings(
         "match_calendar": match_calendar,
         "matched_calendar": matched_calendar,
         "unmatched_calendar": unmatched_calendar,
+        "unmatched_recordings": len(unmatched_recordings),
+        "exported_unmatched_manifest": exported_unmatched_manifest,
+        "review_calendar": review_calendar,
+        "review_max_candidates": max(review_max_candidates, 1),
+        "skipped_manual": skipped_manual,
         "rename": rename,
         "dry_run": dry_run,
         "extensions": exts,
@@ -954,6 +1115,9 @@ def main() -> int:
                 file_list=args.file_list,
                 process_now=args.process_now,
                 match_calendar=args.match_calendar,
+                export_unmatched_manifest=args.export_unmatched_manifest,
+                review_calendar=args.review_calendar,
+                review_max_candidates=args.review_max_candidates,
                 window_minutes=args.window_minutes,
                 rename=args.rename,
                 dry_run=args.dry_run,

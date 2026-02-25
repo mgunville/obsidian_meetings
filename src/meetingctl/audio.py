@@ -64,7 +64,8 @@ def convert_wav_to_mp3(
             runner=probe_runner,
         )
         if existing_bitrate is not None and existing_bitrate > upgrade_if_bitrate_at_or_below_kbps:
-            wav_path.unlink()
+            if wav_path.suffix.lower() == ".wav":
+                wav_path.unlink()
             return target
 
     run = runner or subprocess.run
@@ -92,5 +93,6 @@ def convert_wav_to_mp3(
         check=True,
     )
     temp_target.replace(target)
-    wav_path.unlink()
+    if wav_path.suffix.lower() == ".wav":
+        wav_path.unlink()
     return target

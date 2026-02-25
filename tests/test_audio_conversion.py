@@ -61,3 +61,17 @@ def test_convert_wav_to_mp3_skips_reencode_when_existing_mp3_is_high_quality(tmp
     assert mp3.read_text() == "existing"
     assert not wav.exists()
     assert not run_calls
+
+
+def test_convert_wav_to_mp3_keeps_m4a_source(tmp_path: Path) -> None:
+    m4a = tmp_path / "audio.m4a"
+    mp3 = tmp_path / "audio.mp3"
+    m4a.write_text("m4a")
+
+    def fake_runner(args: list[str], check: bool = True) -> None:
+        mp3.write_text("mp3")
+
+    out = convert_wav_to_mp3(wav_path=m4a, mp3_path=mp3, runner=fake_runner)
+    assert out == mp3
+    assert mp3.exists()
+    assert m4a.exists()

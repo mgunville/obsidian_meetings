@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import os
+import re
 
 import anthropic
 
-from meetingctl.summary_parser import parse_summary_json
+from meetingctl.summary_parser import SummaryParseError, parse_summary_json
 
 
 def _extract_text_content(response: object) -> str:
@@ -31,6 +32,18 @@ def _summary_model_candidates() -> list[str]:
 def _is_model_not_found_error(exc: Exception) -> bool:
     text = str(exc).lower()
     return "not_found_error" in text and "model:" in text
+
+
+def _extract_candidate_json(raw_text: str) -> str:
+    fenced = re.search(r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", raw_text, flags=re.IGNORECASE)
+    if fenced:
+        return fenced.group(1)
+
+    start = raw_text.find("{")
+    end = raw_text.rfind("}")
+    if start >= 0 and end > start:
+        return raw_text[start : end + 1]
+    return raw_text
 
 
 def generate_summary(transcript: str, *, api_key: str) -> dict[str, object]:
@@ -102,5 +115,11 @@ If there are no decisions or action items, use empty arrays.
 
     response_text = _extract_text_content(response)
 
-    # Parse and validate the response
-    return parse_summary_json(response_text)
+    # Parse and validate the response, tolerating fenced/prose-wrapped JSON.
+    try:
+        return parse_summary_json(response_text)
+    except SummaryParseError:
+        candidate = _extract_candidate_json(response_text)
+        if candidate == response_text:
+            raise
+        return parse_summary_json(candidate)

@@ -60,6 +60,8 @@ def test_template_render_contains_managed_sentinels() -> None:
         "<!-- ACTION_ITEMS_END -->",
         "<!-- TRANSCRIPT_START -->",
         "<!-- TRANSCRIPT_END -->",
+        "<!-- REFERENCES_START -->",
+        "<!-- REFERENCES_END -->",
     ]:
         assert marker in output
 

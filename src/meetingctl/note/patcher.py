@@ -12,6 +12,7 @@ REGIONS = {
     "decisions": ("<!-- DECISIONS_START -->", "<!-- DECISIONS_END -->"),
     "action_items": ("<!-- ACTION_ITEMS_START -->", "<!-- ACTION_ITEMS_END -->"),
     "transcript": ("<!-- TRANSCRIPT_START -->", "<!-- TRANSCRIPT_END -->"),
+    "references": ("<!-- REFERENCES_START -->", "<!-- REFERENCES_END -->"),
 }
 
 

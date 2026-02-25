@@ -229,9 +229,14 @@ def create_backfill_note_for_recording(
     *,
     recording_path: Path,
     platform: str = "system",
+    title: str | None = None,
 ) -> dict[str, str]:
     inferred_start, _ = infer_datetime_from_recording_path(recording_path)
-    readable_title = recording_path.stem.replace("_", " ").replace("-", " ").strip() or "Backfill Meeting"
+    readable_title = (
+        title
+        or recording_path.stem.replace("_", " ").replace("-", " ").strip()
+        or "Backfill Meeting"
+    )
     return create_adhoc_note(
         title=readable_title,
         platform=platform,
