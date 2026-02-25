@@ -799,20 +799,6 @@ def _backfill_recordings(
         _emit(f"backfill progress: 0/{total}")
 
     for index, recording in enumerate(files, start=1):
-        stem = recording.stem
-        transcript = cfg.recordings_path / f"{stem}.txt"
-        mp3 = cfg.recordings_path / f"{stem}.mp3"
-        if transcript.exists() and mp3.exists():
-            skipped_existing += 1
-            if verbose:
-                _emit(f"backfill skip existing: {recording}")
-            if progress:
-                _emit(
-                    f"backfill progress: {index}/{total} "
-                    f"(processed={processed_jobs} failed={failed_jobs} skipped={skipped_existing})"
-                )
-            continue
-
         try:
             if verbose:
                 _emit(f"backfill processing: {recording}")
@@ -875,6 +861,17 @@ def _backfill_recordings(
                     )
                 )
             meeting_id = note_info["meeting_id"]
+            transcript = _preferred_transcript_path(meeting_id=meeting_id, cfg=cfg)
+            if transcript.exists():
+                skipped_existing += 1
+                if verbose:
+                    _emit(f"backfill skip existing: {recording} (transcript exists for {meeting_id})")
+                if progress:
+                    _emit(
+                        f"backfill progress: {index}/{total} "
+                        f"(processed={processed_jobs} failed={failed_jobs} skipped={skipped_existing})"
+                    )
+                continue
             resolved_recording = recording
             if rename and matched_event:
                 resolved_recording = _rename_recording_family(
