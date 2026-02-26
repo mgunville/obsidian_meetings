@@ -129,7 +129,8 @@ After customization:
 1. **Test each macro individually**
    ```bash
    # Verify CLI still works
-   cd /Users/mike/Documents/Dev/agentic_Projects/projects/obsidian_meetings
+   REPO_ROOT="${MEETINGCTL_REPO:-$HOME/Documents/Dev/obsidian_meetings}"
+   cd "$REPO_ROOT"
    set -a; source .env; set +a
    PYTHONPATH=src ./.venv/bin/python -m meetingctl.cli status --json
    ```

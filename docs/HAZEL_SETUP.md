@@ -37,7 +37,8 @@ If your machine syncs Voice Memos into a different iCloud path, point Rule 2 at 
 - `Run shell script` with input passed as arguments.
 
 ```bash
-bash "/Users/mike/Documents/Dev/agentic_Projects/projects/obsidian_meetings/scripts/hazel_ingest_file.sh" "$1" >> "$HOME/.local/state/meetingctl/hazel.log" 2>&1
+REPO_ROOT="${MEETINGCTL_REPO:-$HOME/Documents/Dev/obsidian_meetings}"
+bash "$REPO_ROOT/scripts/hazel_ingest_file.sh" "$1" >> "$HOME/.local/state/meetingctl/hazel.log" 2>&1
 ```
 
 ## Runtime Behavior

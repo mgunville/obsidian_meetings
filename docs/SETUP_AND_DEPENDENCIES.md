@@ -18,7 +18,8 @@ Minimum required:
 - `RECORDINGS_PATH=~/Notes/recordings`
 
 Optional (already documented in `.env.example`):
-- `DEFAULT_MEETINGS_FOLDER=_Work/AHEAD/Meetings`
+- `DEFAULT_MEETINGS_FOLDER=Meetings`
+- `MEETINGCTL_ARTIFACTS_ROOT=Meetings/_artifacts` (vault-root-relative path for transcript artifacts; keeps links stable when notes move)
 - `MEETINGCTL_NOTE_TEMPLATE_PATH=~/Notes/notes-vault/System/Templates/icalBuddy/Meeting.md`
 - `MEETINGCTL_MATCH_WINDOW_MINUTES=30`
 - `MEETINGCTL_INGEST_MIN_AGE_SECONDS=15`

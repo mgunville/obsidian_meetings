@@ -7,7 +7,8 @@ This runbook captures the commands used in day-to-day operation and bulk mainten
 Run from repo root:
 
 ```bash
-cd /Users/mike/Documents/Dev/agentic_Projects/projects/obsidian_meetings
+REPO_ROOT="${MEETINGCTL_REPO:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
+cd "$REPO_ROOT"
 set -a; source .env; set +a
 ```
 
@@ -58,13 +59,14 @@ while IFS= read -r f; do ffprobe -v error "$f" >/dev/null || echo "BAD: $f"; don
 
 - Keep audio files (`.m4a`, optional `.mp3`) in `~/Notes/audio`.
 - Store text artifacts in vault under:
-  - `VAULT_PATH/<DEFAULT_MEETINGS_FOLDER>/_artifacts/<meeting_id>/`
+  - `VAULT_PATH/<MEETINGCTL_ARTIFACTS_ROOT>/<meeting_id>/`
   - Files: `<meeting_id>.txt`, `<meeting_id>.srt`, `<meeting_id>.json`
 
 The default behavior is enabled with:
 
 ```bash
 MEETINGCTL_TEXT_ARTIFACTS_IN_VAULT=1
+MEETINGCTL_ARTIFACTS_ROOT=Meetings/_artifacts
 ```
 
 Set `MEETINGCTL_TEXT_ARTIFACTS_IN_VAULT=0` to keep text artifacts in `RECORDINGS_PATH`.
@@ -103,16 +105,20 @@ done
 Run tags normalization helpers (from repo):
 
 ```bash
-./.venv/bin/python scripts/audit_vault_tags.py /Users/mike/Notes/notes-vault --max-examples 30
-./.venv/bin/python scripts/fix_vault_tags.py /Users/mike/Notes/notes-vault --drop-year-tags --write --report /tmp/vault_tags_drop_year_write.json
+./.venv/bin/python scripts/audit_vault_tags.py "${VAULT_PATH:?set VAULT_PATH in .env}" --max-examples 30
+./.venv/bin/python scripts/fix_vault_tags.py "${VAULT_PATH:?set VAULT_PATH in .env}" --drop-year-tags --write --report /tmp/vault_tags_drop_year_write.json
 ```
 
 ## 7) Replacing Transcript After Diarization (Future)
 
+Note: this section reflects current behavior where transcript body can be managed inline.
+For the planned links-only transcript model and vault metadata normalization rules, use:
+- `docs/VAULT_METADATA_NORMALIZATION_RUNBOOK.md`
+
 When diarized output is ready for a meeting:
 
 1. Replace the text artifact file:
-   - `.../_artifacts/<meeting_id>/<meeting_id>.txt`
+   - `.../<MEETINGCTL_ARTIFACTS_ROOT>/<meeting_id>/<meeting_id>.txt`
 2. Re-run processing for that meeting ID.
 3. The managed note sections are overwritten from the new transcript:
    - `TRANSCRIPT`
@@ -138,7 +144,8 @@ This is repeatable and intended for transcript upgrades.
 Use `docs/HAZEL_SETUP.md` as the source of truth. Both monitored folders should run:
 
 ```bash
-bash "/Users/mike/Documents/Dev/agentic_Projects/projects/obsidian_meetings/scripts/hazel_ingest_file.sh" "$1" >> "$HOME/.local/state/meetingctl/hazel.log" 2>&1
+REPO_ROOT="${MEETINGCTL_REPO:-$HOME/Documents/Dev/obsidian_meetings}"
+bash "$REPO_ROOT/scripts/hazel_ingest_file.sh" "$1" >> "$HOME/.local/state/meetingctl/hazel.log" 2>&1
 ```
 
 ### Keyboard Maestro
@@ -146,13 +153,14 @@ bash "/Users/mike/Documents/Dev/agentic_Projects/projects/obsidian_meetings/scri
 1. Import macro bundle:
    - `config/km/Meeting-Automation-Macros.kmmacros`
 2. Ensure macro shell actions use repo-local runtime:
-   - `cd /Users/mike/Documents/Dev/agentic_Projects/projects/obsidian_meetings`
+   - `REPO_ROOT="${MEETINGCTL_REPO:-$HOME/Documents/Dev/obsidian_meetings}" && cd "$REPO_ROOT"`
    - `set -a; source .env; set +a`
    - `PYTHONPATH=src ./.venv/bin/python -m meetingctl.cli ...`
 3. Validate macro command path from terminal first:
 
 ```bash
-cd /Users/mike/Documents/Dev/agentic_Projects/projects/obsidian_meetings
+REPO_ROOT="${MEETINGCTL_REPO:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
+cd "$REPO_ROOT"
 set -a; source .env; set +a
 PYTHONPATH=src ./.venv/bin/python -m meetingctl.cli status --json
 ```

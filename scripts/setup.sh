@@ -35,17 +35,33 @@ fi
 "$PYTHON_BIN" -m venv .venv
 VENV_PY="$ROOT_DIR/.venv/bin/python"
 VENV_PIP="$ROOT_DIR/.venv/bin/pip"
-"$VENV_PY" -m pip install --upgrade pip setuptools wheel
+"$VENV_PY" -m pip install --upgrade pip setuptools wheel || \
+  echo "Packaging tool upgrade skipped (offline or index unavailable); continuing with existing versions."
+
+install_editable_offline_fallback() {
+  echo "Editable install fallback: pip install -e . --no-build-isolation --no-deps"
+  "$VENV_PIP" install -e . --no-build-isolation --no-deps
+}
+
 if [ -f requirements.txt ]; then
-  "$VENV_PIP" install -r requirements.txt
+  if ! "$VENV_PIP" install -r requirements.txt; then
+    echo "requirements install failed; attempting offline editable fallback."
+    install_editable_offline_fallback
+  fi
 else
-  "$VENV_PIP" install -e ".[dev]"
+  if ! "$VENV_PIP" install -e ".[dev]"; then
+    echo "editable dev install failed; attempting offline editable fallback."
+    install_editable_offline_fallback
+  fi
 fi
-"$VENV_PIP" install openai-whisper
+
+if ! "$VENV_PIP" install openai-whisper; then
+  echo "openai-whisper install skipped/failed (offline or index unavailable)."
+fi
 
 "$VENV_PY" - <<'PY'
-import importlib
-missing = [m for m in ("setuptools", "wheel") if importlib.util.find_spec(m) is None]
+from importlib.util import find_spec
+missing = [m for m in ("setuptools", "wheel") if find_spec(m) is None]
 if missing:
     raise SystemExit(f"Missing packaging modules in .venv: {', '.join(missing)}")
 print("Packaging backend check: OK")

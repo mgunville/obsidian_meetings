@@ -58,8 +58,6 @@ def test_template_render_contains_managed_sentinels() -> None:
         "<!-- DECISIONS_END -->",
         "<!-- ACTION_ITEMS_START -->",
         "<!-- ACTION_ITEMS_END -->",
-        "<!-- TRANSCRIPT_START -->",
-        "<!-- TRANSCRIPT_END -->",
         "<!-- REFERENCES_START -->",
         "<!-- REFERENCES_END -->",
     ]:

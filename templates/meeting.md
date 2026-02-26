@@ -46,11 +46,6 @@ tags:
 > _Pending_
 <!-- ACTION_ITEMS_END -->
 
-## Transcript
-<!-- TRANSCRIPT_START -->
-> _Pending_
-<!-- TRANSCRIPT_END -->
-
 ## References
 <!-- REFERENCES_START -->
 > _Pending_

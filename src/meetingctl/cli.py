@@ -314,13 +314,12 @@ def _text_artifacts_in_vault_enabled() -> bool:
 
 
 def _vault_artifact_dir(*, meeting_id: str) -> Path:
-    meetings_folder = os.environ.get("DEFAULT_MEETINGS_FOLDER", "meetings").strip() or "meetings"
-    return (
-        Path(os.environ.get("VAULT_PATH", ".")).expanduser().resolve()
-        / meetings_folder
-        / "_artifacts"
-        / meeting_id
-    )
+    vault_root = Path(os.environ.get("VAULT_PATH", ".")).expanduser().resolve()
+    artifacts_root_raw = os.environ.get("MEETINGCTL_ARTIFACTS_ROOT", "meetings/_artifacts").strip()
+    artifacts_root = Path(artifacts_root_raw).expanduser()
+    if not artifacts_root.is_absolute():
+        artifacts_root = (vault_root / artifacts_root).resolve()
+    return artifacts_root / meeting_id
 
 
 def _preferred_transcript_path(*, meeting_id: str, cfg) -> Path:
@@ -379,15 +378,14 @@ def _artifact_status_region(transcript_path: Path) -> str:
 def _references_region(transcript_path: Path, audio_path: Path) -> str:
     transcript_srt_path = transcript_path.with_suffix(".srt")
     transcript_json_path = transcript_path.with_suffix(".json")
-    meetings_folder = os.environ.get("DEFAULT_MEETINGS_FOLDER", "meetings").strip() or "meetings"
-    artifact_root = Path(os.environ.get("VAULT_PATH", ".")).expanduser().resolve() / meetings_folder
+    vault_root = Path(os.environ.get("VAULT_PATH", ".")).expanduser().resolve()
 
     def _link(path: Path) -> str:
         if path.exists():
             try:
-                rel = path.resolve().relative_to(artifact_root.resolve())
-                rel_str = str(rel)
-                return f"[{rel_str}]({rel_str})"
+                rel = path.resolve().relative_to(vault_root)
+                rel_str = rel.as_posix()
+                return f"[[{rel_str}]]"
             except Exception:
                 pass
         return str(path)
@@ -419,19 +417,22 @@ def _default_queue_handler(payload: dict[str, object]) -> None:
         ),
         convert_audio=_convert_for_processing,
     )
-    patch_note_file(
-        note_path=result.note_path,
-        updates=(
-            {
-                "transcript": _artifact_status_region(result.transcript_path),
-                "references": _references_region(result.transcript_path, result.mp3_path),
-            }
-            if "<!-- REFERENCES_START -->" in result.note_path.read_text(encoding="utf-8", errors="replace")
-            and "<!-- REFERENCES_END -->" in result.note_path.read_text(encoding="utf-8", errors="replace")
-            else {"transcript": _artifact_status_region(result.transcript_path)}
-        ),
-        dry_run=False,
-    )
+    note_text = result.note_path.read_text(encoding="utf-8", errors="replace")
+    has_references_region = "<!-- REFERENCES_START -->" in note_text and "<!-- REFERENCES_END -->" in note_text
+    has_transcript_region = "<!-- TRANSCRIPT_START -->" in note_text and "<!-- TRANSCRIPT_END -->" in note_text
+    if has_references_region:
+        updates = {"references": _references_region(result.transcript_path, result.mp3_path)}
+    elif has_transcript_region:
+        # Legacy fallback for older notes that still use transcript-managed regions only.
+        updates = {"transcript": _artifact_status_region(result.transcript_path)}
+    else:
+        updates = {}
+    if updates:
+        patch_note_file(
+            note_path=result.note_path,
+            updates=updates,
+            dry_run=False,
+        )
 
     log_file = _processed_jobs_log_file()
     log_file.parent.mkdir(parents=True, exist_ok=True)

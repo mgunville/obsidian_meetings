@@ -31,7 +31,8 @@ The Meeting Automation system provides one-keystroke UX for:
 
 1. **Install meetingctl**
    ```bash
-   cd /Users/mike/Documents/Dev/agentic_Projects/projects/obsidian_meetings
+   REPO_ROOT="${MEETINGCTL_REPO:-$HOME/Documents/Dev/obsidian_meetings}"
+   cd "$REPO_ROOT"
    bash install.sh
    source .venv/bin/activate
    ```
@@ -43,7 +44,8 @@ The Meeting Automation system provides one-keystroke UX for:
 
 3. **Verify installation**
    ```bash
-   cd /Users/mike/Documents/Dev/agentic_Projects/projects/obsidian_meetings
+   REPO_ROOT="${MEETINGCTL_REPO:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
+   cd "$REPO_ROOT"
    set -a; source .env; set +a
    PYTHONPATH=src ./.venv/bin/python -m meetingctl.cli --help
    PYTHONPATH=src ./.venv/bin/python -m meetingctl.cli status --json
@@ -146,7 +148,8 @@ The Meeting Automation system provides one-keystroke UX for:
 
 2. **Verify meetingctl is installed**
    ```bash
-   cd /Users/mike/Documents/Dev/agentic_Projects/projects/obsidian_meetings
+   REPO_ROOT="${MEETINGCTL_REPO:-$HOME/Documents/Dev/obsidian_meetings}"
+   cd "$REPO_ROOT"
    PYTHONPATH=src ./.venv/bin/python -m meetingctl.cli --help
    ```
 
@@ -159,7 +162,8 @@ The Meeting Automation system provides one-keystroke UX for:
 
 2. **Run doctor command**
    ```bash
-   cd /Users/mike/Documents/Dev/agentic_Projects/projects/obsidian_meetings
+   REPO_ROOT="${MEETINGCTL_REPO:-$HOME/Documents/Dev/obsidian_meetings}"
+   cd "$REPO_ROOT"
    set -a; source .env; set +a
    PYTHONPATH=src ./.venv/bin/python -m meetingctl.cli doctor --json
    ```

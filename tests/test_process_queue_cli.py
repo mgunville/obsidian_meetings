@@ -83,8 +83,9 @@ def test_process_queue_cli_runs_real_pipeline_success(monkeypatch, tmp_path: Pat
     assert "- Decision A" in patched
     assert "- [ ] Do thing" in patched
     assert "### Transcript Text" not in patched
-    assert "```text" in patched
-    assert "transcript" in patched
+    assert "```text" not in patched
+    assert "<!-- TRANSCRIPT_START -->\n\n<!-- TRANSCRIPT_END -->" in patched
+    assert "- transcript_txt:" in patched
     assert "- audio:" in patched
     assert "m-1.mp3" in patched
     assert "- status: complete" in patched
