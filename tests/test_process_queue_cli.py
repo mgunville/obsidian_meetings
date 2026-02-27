@@ -49,8 +49,11 @@ def test_process_queue_cli_runs_real_pipeline_success(monkeypatch, tmp_path: Pat
     monkeypatch.setenv("RECORDINGS_PATH", str(recordings))
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
 
+    transcribed_paths: list[Path] = []
+
     class FakeRunner:
         def transcribe(self, *, wav_path: Path, transcript_path: Path) -> Path:
+            transcribed_paths.append(wav_path)
             transcript_path.write_text("transcript")
             return transcript_path
 
@@ -215,8 +218,11 @@ def test_process_queue_cli_preserves_m4a_without_mp3_conversion(
     monkeypatch.setenv("RECORDINGS_PATH", str(recordings))
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
 
+    transcribed_paths: list[Path] = []
+
     class FakeRunner:
         def transcribe(self, *, wav_path: Path, transcript_path: Path) -> Path:
+            transcribed_paths.append(wav_path)
             transcript_path.write_text("transcript")
             return transcript_path
 
@@ -245,7 +251,7 @@ def test_process_queue_cli_preserves_m4a_without_mp3_conversion(
     assert processed["mp3_path"].endswith("/m-7.m4a")
 
 
-def test_process_queue_cli_prefers_existing_m4a_when_wav_and_m4a_both_exist(
+def test_process_queue_cli_prefers_wav_when_wav_and_m4a_both_exist(
     monkeypatch, tmp_path: Path, capsys
 ) -> None:
     queue_file = tmp_path / "process_queue.jsonl"
@@ -287,8 +293,11 @@ def test_process_queue_cli_prefers_existing_m4a_when_wav_and_m4a_both_exist(
     monkeypatch.setenv("RECORDINGS_PATH", str(recordings))
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
 
+    transcribed_paths: list[Path] = []
+
     class FakeRunner:
         def transcribe(self, *, wav_path: Path, transcript_path: Path) -> Path:
+            transcribed_paths.append(wav_path)
             transcript_path.write_text("transcript")
             return transcript_path
 
@@ -301,10 +310,15 @@ def test_process_queue_cli_prefers_existing_m4a_when_wav_and_m4a_both_exist(
             "action_items": [],
         },
     )
-    monkeypatch.setattr(
-        "meetingctl.cli.convert_wav_to_mp3",
-        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("should not convert when sibling m4a exists")),
-    )
+    converted: list[Path] = []
+
+    def _fake_convert(*, wav_path: Path, mp3_path: Path) -> Path:
+        converted.append(wav_path)
+        wav_path.unlink()
+        mp3_path.write_text("mp3")
+        return mp3_path
+
+    monkeypatch.setattr("meetingctl.cli.convert_wav_to_mp3", _fake_convert)
     monkeypatch.setattr("sys.argv", ["meetingctl", "process-queue", "--max-jobs", "1", "--json"])
 
     assert cli.main() == 0
@@ -313,9 +327,87 @@ def test_process_queue_cli_prefers_existing_m4a_when_wav_and_m4a_both_exist(
     assert not wav.exists()
     assert m4a.exists()
     assert not (recordings / "m-8.mp3").exists()
+    assert converted == []
+    assert transcribed_paths == [wav]
     processed_lines = processed_file.read_text().strip().splitlines()
     processed = json.loads(processed_lines[0])
     assert processed["mp3_path"].endswith("/m-8.m4a")
+
+
+def test_process_queue_cli_falls_back_to_m4a_when_wav_is_flawed(
+    monkeypatch, tmp_path: Path, capsys
+) -> None:
+    queue_file = tmp_path / "process_queue.jsonl"
+    processed_file = tmp_path / "processed.jsonl"
+    recordings = tmp_path / "recordings"
+    recordings.mkdir(parents=True, exist_ok=True)
+    note = tmp_path / "meeting.md"
+    note.write_text(
+        "\n".join(
+            [
+                "# Note",
+                "<!-- MINUTES_START -->",
+                "",
+                "<!-- MINUTES_END -->",
+                "<!-- DECISIONS_START -->",
+                "",
+                "<!-- DECISIONS_END -->",
+                "<!-- ACTION_ITEMS_START -->",
+                "",
+                "<!-- ACTION_ITEMS_END -->",
+                "<!-- TRANSCRIPT_START -->",
+                "",
+                "<!-- TRANSCRIPT_END -->",
+                "<!-- REFERENCES_START -->",
+                "",
+                "<!-- REFERENCES_END -->",
+            ]
+        )
+        + "\n"
+    )
+    wav = recordings / "m-9.wav"
+    m4a = recordings / "m-9.m4a"
+    wav.write_text("corrupt-wav")
+    m4a.write_text("m4a")
+    _write_queue(queue_file, [{"meeting_id": "m-9", "note_path": str(note), "wav_path": str(wav)}])
+    monkeypatch.setenv("MEETINGCTL_PROCESS_QUEUE_FILE", str(queue_file))
+    monkeypatch.setenv("MEETINGCTL_PROCESSED_JOBS_FILE", str(processed_file))
+    monkeypatch.setenv("VAULT_PATH", str(tmp_path))
+    monkeypatch.setenv("RECORDINGS_PATH", str(recordings))
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+
+    transcribed_paths: list[Path] = []
+
+    class FlakyRunner:
+        def transcribe(self, *, wav_path: Path, transcript_path: Path) -> Path:
+            transcribed_paths.append(wav_path)
+            if wav_path.suffix.lower() == ".wav":
+                raise RuntimeError("decode failed")
+            transcript_path.write_text("transcript")
+            return transcript_path
+
+    monkeypatch.setattr("meetingctl.cli.create_transcription_runner", lambda: FlakyRunner())
+    monkeypatch.setattr(
+        "meetingctl.cli.generate_summary",
+        lambda transcript, api_key: {
+            "minutes": "Summary",
+            "decisions": [],
+            "action_items": [],
+        },
+    )
+    monkeypatch.setattr(
+        "meetingctl.cli.convert_wav_to_mp3",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("should not convert m4a fallback")),
+    )
+    monkeypatch.setattr("sys.argv", ["meetingctl", "process-queue", "--max-jobs", "1", "--json"])
+
+    assert cli.main() == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload == {"processed_jobs": 1, "failed_jobs": 0, "remaining_jobs": 0}
+    assert transcribed_paths == [wav, m4a]
+    processed_lines = processed_file.read_text().strip().splitlines()
+    processed = json.loads(processed_lines[0])
+    assert processed["mp3_path"].endswith("/m-9.m4a")
 
 
 def test_process_queue_cli_fails_when_expected_wav_missing(

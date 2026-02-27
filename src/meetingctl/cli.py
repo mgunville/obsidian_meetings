@@ -32,6 +32,7 @@ from meetingctl.note.service import (
     infer_datetime_from_recording_path,
     preview_note_from_event,
 )
+from meetingctl.metadata import normalize_frontmatter
 from meetingctl.process import ProcessContext, ProcessResult, run_processing
 from meetingctl.queue_worker import QueueLockError, process_queue_jobs
 from meetingctl.recording import AudioHijackRecorder
@@ -53,6 +54,7 @@ def registered_commands() -> list[str]:
         "backfill",
         "ingest-watch",
         "audit-notes",
+        "normalize-frontmatter",
     ]
 
 
@@ -176,6 +178,20 @@ def build_parser() -> argparse.ArgumentParser:
     audit_parser = sub.add_parser("audit-notes")
     audit_parser.add_argument("--json", action="store_true")
 
+    normalize_frontmatter_parser = sub.add_parser("normalize-frontmatter")
+    normalize_frontmatter_parser.add_argument(
+        "--note-path",
+        action="append",
+        default=[],
+        help="Absolute or vault-relative note path; repeat for multiple notes.",
+    )
+    normalize_frontmatter_parser.add_argument(
+        "--scope",
+        default="_Work,Meetings,meetings",
+        help="Comma-separated vault-relative roots scanned when --note-path is omitted.",
+    )
+    normalize_frontmatter_parser.add_argument("--json", action="store_true")
+
     event_parser = sub.add_parser("event")
     event_parser.add_argument("--now-or-next", type=int, default=5)
     event_parser.add_argument("--json", action="store_true")
@@ -250,6 +266,40 @@ def _require_payload_str(payload: dict[str, object], key: str) -> str:
     return value
 
 
+def _recording_family_key(path: Path) -> str:
+    return str(path.expanduser().resolve().with_suffix(""))
+
+
+def _preferred_recording(candidates: list[Path]) -> Path:
+    def _priority(path: Path) -> tuple[int, str]:
+        suffix = path.suffix.lower()
+        if suffix == ".wav":
+            return (0, suffix)
+        if suffix == ".m4a":
+            return (1, suffix)
+        return (2, suffix)
+
+    return min(candidates, key=lambda path: (_priority(path), str(path)))
+
+
+def _collapse_recording_variants(paths: list[Path]) -> list[Path]:
+    families: dict[str, list[Path]] = {}
+    for path in paths:
+        resolved = path.expanduser().resolve()
+        families.setdefault(_recording_family_key(resolved), []).append(resolved)
+    selected = [_preferred_recording(candidates) for candidates in families.values()]
+    return sorted(selected, key=lambda path: path.stat().st_mtime)
+
+
+def _fallback_recording_for_wav(path: Path) -> Path | None:
+    if path.suffix.lower() != ".wav":
+        return None
+    sibling_m4a = path.with_suffix(".m4a")
+    if sibling_m4a.exists():
+        return sibling_m4a.resolve()
+    return None
+
+
 def _resolve_wav_path(
     *,
     payload: dict[str, object],
@@ -266,6 +316,15 @@ def _resolve_wav_path(
             raise ValueError(
                 f"WAV path must be within recordings path: {recordings_root}."
             )
+        if candidate.suffix.lower() in {".wav", ".m4a"}:
+            sibling_wav = candidate.with_suffix(".wav")
+            sibling_m4a = candidate.with_suffix(".m4a")
+            candidates = [candidate]
+            if sibling_wav.exists():
+                candidates.append(sibling_wav.resolve())
+            if sibling_m4a.exists():
+                candidates.append(sibling_m4a.resolve())
+            candidate = _preferred_recording(candidates)
         return candidate
 
     expected = recordings_root / f"{meeting_id}.wav"
@@ -402,20 +461,38 @@ def _references_region(transcript_path: Path, audio_path: Path) -> str:
 def _default_queue_handler(payload: dict[str, object]) -> None:
     context = _process_context_from_payload(payload)
     transcript_runner = create_transcription_runner()
+    active_recording_path = context.wav_path
+
+    def _transcribe_with_fallback(wav_path: Path, transcript_path: Path) -> Path:
+        nonlocal active_recording_path
+        try:
+            active_recording_path = wav_path
+            return _transcribe_for_processing(
+                transcript_runner,
+                wav_path,
+                transcript_path,
+            )
+        except Exception:
+            fallback = _fallback_recording_for_wav(wav_path)
+            if fallback is None:
+                raise
+            active_recording_path = fallback
+            return _transcribe_for_processing(
+                transcript_runner,
+                fallback,
+                transcript_path,
+            )
+
     result = run_processing(
         context=context,
-        transcribe=lambda wav_path, transcript_path: _transcribe_for_processing(
-            transcript_runner,
-            wav_path,
-            transcript_path,
-        ),
+        transcribe=_transcribe_with_fallback,
         summarize=_summary_from_transcript,
         patch_note=lambda note_path, summary_payload: patch_note_file(
             note_path=note_path,
             updates=summary_to_patch_regions(summary_payload),
             dry_run=False,
         ),
-        convert_audio=_convert_for_processing,
+        convert_audio=lambda wav_path, mp3_path: _convert_for_processing(active_recording_path, mp3_path),
     )
     note_text = result.note_path.read_text(encoding="utf-8", errors="replace")
     has_references_region = "<!-- REFERENCES_START -->" in note_text and "<!-- REFERENCES_END -->" in note_text
@@ -488,10 +565,11 @@ def _queue_job_payload(payload: dict[str, object]) -> None:
     _queue_process_trigger()(payload)
 
 
-def _load_ingested_paths(log_file: Path) -> set[str]:
+def _load_ingested_recordings(log_file: Path) -> tuple[set[str], set[str]]:
     if not log_file.exists():
-        return set()
-    seen: set[str] = set()
+        return set(), set()
+    seen_paths: set[str] = set()
+    seen_families: set[str] = set()
     for line in log_file.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line:
@@ -502,14 +580,22 @@ def _load_ingested_paths(log_file: Path) -> set[str]:
             continue
         wav_path = payload.get("wav_path")
         if isinstance(wav_path, str) and wav_path:
-            seen.add(wav_path)
-    return seen
+            seen_paths.add(wav_path)
+            try:
+                seen_families.add(_recording_family_key(Path(wav_path)))
+            except Exception:
+                pass
+        family_key = payload.get("family_key")
+        if isinstance(family_key, str) and family_key:
+            seen_families.add(family_key)
+    return seen_paths, seen_families
 
 
 def _append_ingested_path(log_file: Path, wav_path: Path, meeting_id: str) -> None:
     log_file.parent.mkdir(parents=True, exist_ok=True)
     record = {
         "wav_path": str(wav_path.resolve()),
+        "family_key": _recording_family_key(wav_path),
         "meeting_id": meeting_id,
         "ingested_at": _now_utc().isoformat(),
     }
@@ -530,19 +616,17 @@ def _ingest_wav_files_once(
         _assert_transcription_backend_ready()
     cfg = load_config()
     ingested_log = _ingested_files_log_file()
-    seen = _load_ingested_paths(ingested_log)
+    seen_paths, seen_families = _load_ingested_recordings(ingested_log)
 
     exts = [ext.lower().lstrip(".") for ext in extensions if ext.strip()]
     if not exts:
         exts = ["wav", "m4a"]
-    audio_files = sorted(
-        {
-            path.resolve()
-            for ext in exts
-            for path in cfg.recordings_path.glob(f"*.{ext}")
-        },
-        key=lambda path: path.stat().st_mtime,
-    )
+    discovered_candidates = [
+        path.resolve()
+        for ext in exts
+        for path in cfg.recordings_path.glob(f"*.{ext}")
+    ]
+    audio_files = _collapse_recording_variants(discovered_candidates)
     discovered_audio = len(audio_files)
     queued_jobs = 0
     processed_jobs = 0
@@ -556,7 +640,8 @@ def _ingest_wav_files_once(
     now_ts = time.time()
     for audio_file in audio_files:
         audio_key = str(audio_file.resolve())
-        if audio_key in seen:
+        audio_family = _recording_family_key(audio_file)
+        if audio_key in seen_paths or audio_family in seen_families:
             skipped_already_ingested += 1
             continue
         age_seconds = now_ts - audio_file.stat().st_mtime
@@ -594,7 +679,8 @@ def _ingest_wav_files_once(
                 _queue_job_payload(payload)
                 queued_jobs += 1
             _append_ingested_path(ingested_log, audio_file, note_info["meeting_id"])
-            seen.add(audio_key)
+            seen_paths.add(audio_key)
+            seen_families.add(audio_family)
         except Exception as exc:
             failed_jobs += 1
             errors.append({"recording": str(audio_file), "error": str(exc)})
@@ -712,6 +798,7 @@ def _backfill_recordings(
             files.extend(cfg.recordings_path.glob(f"*.{ext}"))
         files = sorted(files, key=lambda path: path.stat().st_mtime)
     files = list(dict.fromkeys(path.resolve() for path in files))
+    files = _collapse_recording_variants(files)
     if max_files > 0:
         files = files[:max_files]
 
@@ -1152,6 +1239,36 @@ def main() -> int:
     if args.command == "audit-notes":
         try:
             payload = _audit_notes_duplicates()
+        except Exception as exc:
+            _print_payload({"error": str(exc)}, args.json)
+            return 2
+        _print_payload(payload, args.json)
+        return 0
+    if args.command == "normalize-frontmatter":
+        try:
+            cfg = load_config()
+            vault_path = cfg.vault_path.expanduser().resolve()
+            note_paths: list[Path] = []
+            if args.note_path:
+                for raw in args.note_path:
+                    candidate = Path(raw).expanduser()
+                    if candidate.is_absolute():
+                        note_paths.append(candidate.resolve())
+                    else:
+                        note_paths.append((vault_path / candidate).resolve())
+            else:
+                scopes = [value.strip() for value in args.scope.split(",") if value.strip()]
+                for scope in scopes:
+                    root = (vault_path / scope).resolve()
+                    if root.exists():
+                        note_paths.extend(root.rglob("*.md"))
+
+            result = normalize_frontmatter(
+                vault_path=vault_path,
+                note_paths=sorted(set(note_paths)),
+                sync_title_from_filename=True,
+            )
+            payload = {"examined": result.examined, "changed": result.changed, "skipped": result.skipped}
         except Exception as exc:
             _print_payload({"error": str(exc)}, args.json)
             return 2

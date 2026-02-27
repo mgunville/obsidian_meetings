@@ -32,3 +32,10 @@ export PYTHONPATH=src
 # Single-pass ingest + queue processing for file-triggered automation (Hazel/KM).
 python -m meetingctl.cli ingest-watch --once --match-calendar --json
 python -m meetingctl.cli process-queue --json
+
+# Optional metadata normalization for moved/new meeting notes.
+if [[ "${MEETINGCTL_NORMALIZE_FRONTMATTER:-0}" == "1" ]]; then
+  python -m meetingctl.cli normalize-frontmatter \
+    --scope "${MEETINGCTL_NORMALIZE_SCOPE:-_Work}" \
+    --json
+fi

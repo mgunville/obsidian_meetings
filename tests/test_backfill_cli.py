@@ -30,6 +30,30 @@ def test_backfill_cli_queues_recordings(monkeypatch, tmp_path: Path, capsys) -> 
     assert len(queued_lines) == 2
 
 
+def test_backfill_cli_collapses_same_stem_and_prefers_wav(
+    monkeypatch, tmp_path: Path, capsys
+) -> None:
+    recordings = tmp_path / "recordings"
+    recordings.mkdir(parents=True, exist_ok=True)
+    vault = tmp_path / "vault"
+    vault.mkdir(parents=True, exist_ok=True)
+    queue = tmp_path / "queue.jsonl"
+    monkeypatch.setenv("RECORDINGS_PATH", str(recordings))
+    monkeypatch.setenv("VAULT_PATH", str(vault))
+    monkeypatch.setenv("DEFAULT_MEETINGS_FOLDER", "meetings")
+    monkeypatch.setenv("MEETINGCTL_PROCESS_QUEUE_FILE", str(queue))
+    (recordings / "20260208_1015-team-sync.wav").write_text("wav")
+    (recordings / "20260208_1015-team-sync.m4a").write_text("m4a")
+
+    monkeypatch.setattr("sys.argv", ["meetingctl", "backfill", "--extensions", "wav,m4a", "--json"])
+    assert cli.main() == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["discovered_files"] == 1
+    assert payload["queued_jobs"] == 1
+    queued = json.loads(queue.read_text().strip())
+    assert Path(queued["wav_path"]).resolve() == (recordings / "20260208_1015-team-sync.wav").resolve()
+
+
 def test_backfill_cli_process_now_runs_pipeline(monkeypatch, tmp_path: Path, capsys) -> None:
     recordings = tmp_path / "recordings"
     recordings.mkdir(parents=True, exist_ok=True)

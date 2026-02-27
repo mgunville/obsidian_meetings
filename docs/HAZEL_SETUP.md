@@ -50,6 +50,7 @@ bash "$REPO_ROOT/scripts/hazel_ingest_file.sh" "$1" >> "$HOME/.local/state/meeti
   - loads `.env` and `.venv`
   - runs `ingest-watch --once --match-calendar --json`
   - runs `process-queue --json`
+  - optional (`MEETINGCTL_NORMALIZE_FRONTMATTER=1`): runs `normalize-frontmatter` for new/moved notes
 - Locking via `~/.local/state/meetingctl/automation_ingest.lock` prevents duplicate concurrent runs.
 
 ## Required `.env`
@@ -65,6 +66,8 @@ bash "$REPO_ROOT/scripts/hazel_ingest_file.sh" "$1" >> "$HOME/.local/state/meeti
 - `MEETINGCTL_AUTOMATION_STATE_DIR=~/.local/state/meetingctl`
 - `MEETINGCTL_VOICEMEMO_FILENAME_TIMEZONE=America/Chicago`
 - `MEETINGCTL_VOICEMEMO_UTC_MANIFEST=~/Notes/audio/voice_memo_utc_manifest.txt` (for one-time timezone incident files)
+- `MEETINGCTL_NORMALIZE_FRONTMATTER=1` (optional: normalize meeting metadata after each ingest run)
+- `MEETINGCTL_NORMALIZE_SCOPE=_Work` (optional: scope for normalization command)
 
 ## Quick Validation
 
@@ -74,5 +77,7 @@ bash "$REPO_ROOT/scripts/hazel_ingest_file.sh" "$1" >> "$HOME/.local/state/meeti
    - `tail -n 100 ~/.local/state/meetingctl/hazel.log`
 3. Confirm queue processing + artifacts:
    - `PYTHONPATH=src python3 -m meetingctl.cli process-queue --json`
-4. Audit duplicate meeting notes after bulk runs:
+4. Normalize frontmatter on work notes (location-based inference):
+   - `PYTHONPATH=src python3 -m meetingctl.cli normalize-frontmatter --scope _Work --json`
+5. Audit duplicate meeting notes after bulk runs:
    - `PYTHONPATH=src python3 -m meetingctl.cli audit-notes --json`

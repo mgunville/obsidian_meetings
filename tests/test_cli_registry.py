@@ -13,6 +13,7 @@ def test_registered_commands_are_stable() -> None:
         "backfill",
         "ingest-watch",
         "audit-notes",
+        "normalize-frontmatter",
     ]
 
 

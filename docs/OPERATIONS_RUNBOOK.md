@@ -148,6 +148,15 @@ REPO_ROOT="${MEETINGCTL_REPO:-$HOME/Documents/Dev/obsidian_meetings}"
 bash "$REPO_ROOT/scripts/hazel_ingest_file.sh" "$1" >> "$HOME/.local/state/meetingctl/hazel.log" 2>&1
 ```
 
+Recommended post-process metadata hygiene step:
+
+```bash
+REPO_ROOT="${MEETINGCTL_REPO:-$HOME/Documents/Dev/obsidian_meetings}"
+cd "$REPO_ROOT"
+set -a; source .env; set +a
+PYTHONPATH=src ./.venv/bin/python -m meetingctl.cli normalize-frontmatter --scope _Work --json
+```
+
 ### Keyboard Maestro
 
 1. Import macro bundle:
