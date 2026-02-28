@@ -48,13 +48,97 @@ def _extract_candidate_json(raw_text: str) -> str:
     return raw_text
 
 
+def _strip_markdown_fence(text: str) -> str:
+    stripped = text.strip()
+    match = re.match(r"^```(?:json)?\s*([\s\S]*?)\s*```$", stripped, flags=re.IGNORECASE)
+    if match:
+        return match.group(1).strip()
+    if stripped.lower().startswith("```json"):
+        body = stripped[len("```json") :].lstrip()
+        if body.endswith("```"):
+            body = body[:-3]
+        return body.strip()
+    if stripped.startswith("```"):
+        body = stripped[3:].lstrip()
+        if body.endswith("```"):
+            body = body[:-3]
+        return body.strip()
+    return stripped
+
+
+def _extract_minutes_from_jsonish(text: str) -> str | None:
+    match = re.search(r'"minutes"\s*:\s*"', text)
+    if not match:
+        return None
+    idx = match.end()
+    chunks: list[str] = []
+    escaped = False
+    while idx < len(text):
+        char = text[idx]
+        if escaped:
+            chunks.append(char)
+            escaped = False
+        elif char == "\\":
+            escaped = True
+            chunks.append(char)
+        elif char == '"':
+            raw = "".join(chunks)
+            try:
+                decoded = json.loads(f'"{raw}"')
+            except json.JSONDecodeError:
+                decoded = raw.replace("\\n", "\n").replace('\\"', '"')
+            cleaned = decoded.strip()
+            return cleaned or None
+        else:
+            chunks.append(char)
+        idx += 1
+    if chunks:
+        raw = "".join(chunks)
+        decoded = raw.replace("\\n", "\n").replace('\\"', '"')
+        cleaned = decoded.strip().rstrip('",')
+        return cleaned or None
+    return None
+
+
+def _extract_embedded_summary(payload_text: str) -> dict[str, object] | None:
+    stripped = _strip_markdown_fence(payload_text)
+    candidates = [stripped]
+    extracted = _extract_candidate_json(stripped)
+    if extracted != stripped:
+        candidates.append(extracted)
+    for candidate in candidates:
+        if '"minutes"' not in candidate and "'minutes'" not in candidate:
+            continue
+        try:
+            return parse_summary_json(candidate)
+        except SummaryParseError:
+            try:
+                loaded = json.loads(candidate)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(loaded, dict):
+                return {
+                    "minutes": loaded.get("minutes", ""),
+                    "decisions": loaded.get("decisions", []),
+                    "action_items": loaded.get("action_items", []),
+                }
+    return None
+
+
 def _coerce_minutes(value: object, *, fallback_text: str) -> str:
     if isinstance(value, str) and value.strip():
-        return value.strip()
+        text = value.strip()
+        extracted = _extract_minutes_from_jsonish(_strip_markdown_fence(text))
+        if extracted:
+            return extracted
+        return _strip_markdown_fence(text)
     if value is not None:
         text = str(value).strip()
         if text:
             return text
+    extracted_fallback = _extract_minutes_from_jsonish(_strip_markdown_fence(fallback_text))
+    if extracted_fallback:
+        return extracted_fallback
     cleaned = fallback_text.strip()
     return cleaned if cleaned else "Summary unavailable."
 
@@ -95,14 +179,10 @@ def _coerce_action_items(value: object) -> list[str]:
             text = str(item).strip()
             if not text:
                 continue
-            if "Owner:" in text and "Task:" in text:
-                normalized.append(text)
-            else:
-                normalized.append(f"Owner: Unknown; Task: {text}; Due: TBD")
+            normalized.append(text)
         return normalized
     if isinstance(value, str):
-        items = _coerce_string_list(value)
-        return [f"Owner: Unknown; Task: {item}; Due: TBD" for item in items]
+        return _coerce_string_list(value)
     return []
 
 
@@ -129,6 +209,32 @@ def _coerce_summary_payload(raw_text: str) -> dict[str, object]:
         payload.get("action_items") if payload else None,
     )
 
+    normalized = {
+        "minutes": minutes,
+        "decisions": decisions,
+        "action_items": action_items,
+    }
+    return _normalize_summary_payload(normalized)
+
+
+def _normalize_summary_payload(payload: dict[str, object]) -> dict[str, object]:
+    raw_minutes = payload.get("minutes")
+    embedded_from_minutes = (
+        _extract_embedded_summary(raw_minutes) if isinstance(raw_minutes, str) else None
+    )
+
+    minutes = _coerce_minutes(raw_minutes, fallback_text="")
+    decisions = _coerce_string_list(payload.get("decisions"))
+    action_items = _coerce_action_items(payload.get("action_items"))
+
+    embedded = embedded_from_minutes or _extract_embedded_summary(minutes)
+    if embedded:
+        minutes = _coerce_minutes(embedded.get("minutes"), fallback_text=minutes)
+        if not decisions:
+            decisions = _coerce_string_list(embedded.get("decisions"))
+        if not action_items:
+            action_items = _coerce_action_items(embedded.get("action_items"))
+
     return {
         "minutes": minutes,
         "decisions": decisions,
@@ -139,21 +245,21 @@ def _coerce_summary_payload(raw_text: str) -> dict[str, object]:
 def _summary_max_tokens() -> int:
     raw = os.environ.get("MEETINGCTL_SUMMARY_MAX_TOKENS", "").strip()
     if not raw:
-        return 2048
+        return 4096
     try:
         return max(int(raw), 512)
     except ValueError:
-        return 2048
+        return 4096
 
 
 def _repair_max_tokens() -> int:
     raw = os.environ.get("MEETINGCTL_SUMMARY_REPAIR_MAX_TOKENS", "").strip()
     if not raw:
-        return 1024
+        return 1536
     try:
         return max(int(raw), 256)
     except ValueError:
-        return 1024
+        return 1536
 
 
 def _summary_timeout_seconds() -> float:
@@ -244,11 +350,13 @@ def _request_text_with_model_fallback(
 
 def _parse_summary_payload(raw_text: str) -> dict[str, object]:
     try:
-        return parse_summary_json(raw_text)
+        parsed = parse_summary_json(raw_text)
+        return _normalize_summary_payload(parsed)
     except SummaryParseError:
         candidate = _extract_candidate_json(raw_text)
         if candidate != raw_text:
-            return parse_summary_json(candidate)
+            parsed = parse_summary_json(candidate)
+            return _normalize_summary_payload(parsed)
         raise
 
 

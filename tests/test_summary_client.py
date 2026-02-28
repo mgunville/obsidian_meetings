@@ -297,3 +297,50 @@ def test_generate_summary_accepts_prose_wrapped_json(mock_anthropic_class: Magic
 
     result = generate_summary("Test transcript", api_key="test-key")
     assert result["minutes"] == "ok"
+
+
+@patch("meetingctl.summary_client.anthropic.Anthropic")
+def test_generate_summary_unwraps_nested_summary_in_minutes(mock_anthropic_class: MagicMock) -> None:
+    mock_client = MagicMock()
+    mock_anthropic_class.return_value = mock_client
+    mock_response = MagicMock()
+    mock_response.content = [
+        SimpleNamespace(
+            text=(
+                '{"minutes":"```json\\n'
+                '{\\"minutes\\":\\"## Meeting Details\\\\n- Detail\\",'
+                '\\"decisions\\":[\\"Decision A\\"],'
+                '\\"action_items\\":[\\"Owner: Alex; Task: Follow up; Due: TBD\\"]}'
+                '\\n```","decisions":[],"action_items":[]}'
+            )
+        )
+    ]
+    mock_client.messages.create.return_value = mock_response
+
+    result = generate_summary("Test transcript", api_key="test-key")
+    assert result["minutes"] == "## Meeting Details\n- Detail"
+    assert result["decisions"] == ["Decision A"]
+    assert result["action_items"] == ["Owner: Alex; Task: Follow up; Due: TBD"]
+
+
+@patch("meetingctl.summary_client.anthropic.Anthropic")
+def test_generate_summary_extracts_minutes_from_truncated_jsonish_repair(
+    mock_anthropic_class: MagicMock,
+) -> None:
+    mock_client = MagicMock()
+    mock_anthropic_class.return_value = mock_client
+
+    first_response = MagicMock()
+    first_response.content = [SimpleNamespace(text="Not JSON output")]
+    second_response = MagicMock()
+    second_response.content = [
+        SimpleNamespace(
+            text='{"minutes":"## Meeting Details\\n- Detail","decisions":["Decision A"]'
+        )
+    ]
+    mock_client.messages.create.side_effect = [first_response, second_response]
+
+    result = generate_summary("Test transcript", api_key="test-key")
+    assert result["minutes"] == "## Meeting Details\n- Detail"
+    assert result["decisions"] == []
+    assert result["action_items"] == []
