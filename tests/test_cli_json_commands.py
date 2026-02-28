@@ -137,3 +137,82 @@ def test_cli_start_adhoc_without_note_path_creates_note(monkeypatch, tmp_path: P
     queued_payload = json.loads(queued[0])
     assert queued_payload["meeting_id"] == "m-adhoc"
     assert queued_payload["note_path"]
+
+
+def test_cli_failed_jobs_lists_dead_letter_items(monkeypatch, tmp_path: Path, capsys) -> None:
+    dead_letter = tmp_path / "process_queue.deadletter.jsonl"
+    dead_letter.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "failed_at": "2026-02-28T12:00:00+00:00",
+                        "error": "boom",
+                        "payload": {"meeting_id": "m-1", "note_path": "/tmp/a.md"},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "failed_at": "2026-02-28T12:05:00+00:00",
+                        "error": "bad audio",
+                        "payload": {"meeting_id": "m-2", "note_path": "/tmp/b.md"},
+                    }
+                ),
+            ]
+        )
+        + "\n"
+    )
+    monkeypatch.setenv("MEETINGCTL_PROCESS_QUEUE_DEAD_LETTER_FILE", str(dead_letter))
+    monkeypatch.setattr("sys.argv", ["meetingctl", "failed-jobs", "--limit", "1", "--json"])
+
+    assert cli.main() == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["count"] == 2
+    assert len(payload["items"]) == 1
+    assert payload["items"][0]["payload"]["meeting_id"] == "m-2"
+
+
+def test_cli_failed_jobs_requeue_moves_items_back_to_queue(
+    monkeypatch, tmp_path: Path, capsys
+) -> None:
+    dead_letter = tmp_path / "process_queue.deadletter.jsonl"
+    queue_file = tmp_path / "process_queue.jsonl"
+    dead_letter.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "failed_at": "2026-02-28T12:00:00+00:00",
+                        "error": "boom",
+                        "payload": {"meeting_id": "m-1", "note_path": "/tmp/a.md"},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "failed_at": "2026-02-28T12:05:00+00:00",
+                        "error": "bad audio",
+                        "payload": {"meeting_id": "m-2", "note_path": "/tmp/b.md"},
+                    }
+                ),
+            ]
+        )
+        + "\n"
+    )
+    monkeypatch.setenv("MEETINGCTL_PROCESS_QUEUE_DEAD_LETTER_FILE", str(dead_letter))
+    monkeypatch.setenv("MEETINGCTL_PROCESS_QUEUE_FILE", str(queue_file))
+    monkeypatch.setattr(
+        "sys.argv",
+        ["meetingctl", "failed-jobs-requeue", "--meeting-id", "m-2", "--json"],
+    )
+
+    assert cli.main() == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["requeued"] == 1
+    assert payload["remaining_failed"] == 1
+    assert payload["meeting_ids"] == ["m-2"]
+    queued = [json.loads(line) for line in queue_file.read_text().strip().splitlines()]
+    assert len(queued) == 1
+    assert queued[0]["meeting_id"] == "m-2"
+    remaining_failed = [json.loads(line) for line in dead_letter.read_text().strip().splitlines()]
+    assert len(remaining_failed) == 1
+    assert remaining_failed[0]["payload"]["meeting_id"] == "m-1"

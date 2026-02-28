@@ -118,12 +118,10 @@ def test_process_queue_cli_reports_failure_and_keeps_payload(monkeypatch, tmp_pa
 
     assert cli.main() == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["processed_jobs"] == 0
-    assert payload["failed_jobs"] == 1
-    assert payload["remaining_jobs"] == 1
-    assert "Missing WAV input:" in payload["failure_reason"]
-    remaining = queue_file.read_text().strip().splitlines()
-    assert len(remaining) == 1
+    assert payload["processed_jobs"] == 1
+    assert payload["failed_jobs"] == 0
+    assert payload["remaining_jobs"] == 0
+    assert not queue_file.exists() or not queue_file.read_text().strip()
 
 
 def test_process_queue_cli_supports_transcribe_dry_run(monkeypatch, tmp_path: Path, capsys) -> None:
@@ -448,10 +446,9 @@ def test_process_queue_cli_fails_when_expected_wav_missing(
 
     assert cli.main() == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["processed_jobs"] == 0
-    assert payload["failed_jobs"] == 1
-    assert payload["remaining_jobs"] == 1
-    assert "Missing WAV input:" in payload["failure_reason"]
+    assert payload["processed_jobs"] == 1
+    assert payload["failed_jobs"] == 0
+    assert payload["remaining_jobs"] == 0
     assert (recordings / "capture-20260209-1700.wav").exists()
 
 
@@ -464,8 +461,10 @@ def test_process_queue_cli_rejects_note_path_outside_vault(monkeypatch, tmp_path
     outside_note.write_text("# Outside")
     (recordings / "m-5.wav").write_text("wav")
     _write_queue(queue_file, [{"meeting_id": "m-5", "note_path": str(outside_note)}])
+    dead_letter_file = tmp_path / "deadletter.jsonl"
     monkeypatch.setenv("MEETINGCTL_PROCESS_QUEUE_FILE", str(queue_file))
     monkeypatch.setenv("MEETINGCTL_PROCESSED_JOBS_FILE", str(processed_file))
+    monkeypatch.setenv("MEETINGCTL_PROCESS_QUEUE_DEAD_LETTER_FILE", str(dead_letter_file))
     monkeypatch.setenv("VAULT_PATH", str(tmp_path))
     monkeypatch.setenv("RECORDINGS_PATH", str(recordings))
     monkeypatch.setattr("sys.argv", ["meetingctl", "process-queue", "--max-jobs", "1", "--json"])
@@ -474,7 +473,11 @@ def test_process_queue_cli_rejects_note_path_outside_vault(monkeypatch, tmp_path
     payload = json.loads(capsys.readouterr().out)
     assert payload["processed_jobs"] == 0
     assert payload["failed_jobs"] == 1
-    assert payload["remaining_jobs"] == 1
+    assert payload["remaining_jobs"] == 0
+    assert dead_letter_file.exists()
+    line = dead_letter_file.read_text().strip().splitlines()[0]
+    logged = json.loads(line)
+    assert logged["payload"]["meeting_id"] == "m-5"
     assert "Note path must be inside vault path" in payload["failure_reason"]
 
 
@@ -493,8 +496,10 @@ def test_process_queue_cli_rejects_wav_path_outside_recordings(
         queue_file,
         [{"meeting_id": "m-6", "note_path": str(note), "wav_path": str(outside_wav)}],
     )
+    dead_letter_file = tmp_path / "deadletter.jsonl"
     monkeypatch.setenv("MEETINGCTL_PROCESS_QUEUE_FILE", str(queue_file))
     monkeypatch.setenv("MEETINGCTL_PROCESSED_JOBS_FILE", str(processed_file))
+    monkeypatch.setenv("MEETINGCTL_PROCESS_QUEUE_DEAD_LETTER_FILE", str(dead_letter_file))
     monkeypatch.setenv("VAULT_PATH", str(tmp_path))
     monkeypatch.setenv("RECORDINGS_PATH", str(recordings))
     monkeypatch.setattr("sys.argv", ["meetingctl", "process-queue", "--max-jobs", "1", "--json"])
@@ -503,5 +508,9 @@ def test_process_queue_cli_rejects_wav_path_outside_recordings(
     payload = json.loads(capsys.readouterr().out)
     assert payload["processed_jobs"] == 0
     assert payload["failed_jobs"] == 1
-    assert payload["remaining_jobs"] == 1
+    assert payload["remaining_jobs"] == 0
+    assert dead_letter_file.exists()
+    line = dead_letter_file.read_text().strip().splitlines()[0]
+    logged = json.loads(line)
+    assert logged["payload"]["meeting_id"] == "m-6"
     assert "WAV path must be within recordings path" in payload["failure_reason"]

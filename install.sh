@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$ROOT_DIR/scripts/lib/load_dotenv.sh"
 
 pick_python_bin() {
   local candidate
@@ -53,18 +54,21 @@ if ! "$VENV_PY" -m whisper --help >/dev/null 2>&1; then
   echo "Run: .venv/bin/pip install openai-whisper"
 fi
 
-if [ ! -f .env ] && [ -f .env.example ]; then
-  cp .env.example .env
-  echo "Created .env from .env.example"
+DEFAULT_DOTENV_PATH="$(meetingctl_default_dotenv_path)"
+if [ ! -f "$DEFAULT_DOTENV_PATH" ] && [ -f .env.example ]; then
+  mkdir -p "$(dirname "$DEFAULT_DOTENV_PATH")"
+  cp .env.example "$DEFAULT_DOTENV_PATH"
+  chmod 600 "$DEFAULT_DOTENV_PATH" || true
+  echo "Created env file from .env.example at: $DEFAULT_DOTENV_PATH"
 fi
 
 chmod +x scripts/eventkit_fetch.py
 
 echo ""
 echo "Install complete."
-echo "1) Edit .env paths if needed."
+echo "1) Edit env file paths if needed (default: $(meetingctl_default_dotenv_path))."
 echo "2) Run doctor:"
-echo "   set -a && source .env && set +a && PYTHONPATH=src .venv/bin/python -m meetingctl.cli doctor --json"
+echo "   source scripts/lib/load_dotenv.sh && meetingctl_load_env \"$ROOT_DIR\" && PYTHONPATH=src .venv/bin/python -m meetingctl.cli doctor --json"
 echo "3) Run tests:"
 echo "   .venv/bin/python -m pytest"
 echo "4) Run one-file transcription smoke check:"

@@ -46,9 +46,8 @@ The Meeting Automation system provides one-keystroke UX for:
    ```bash
    REPO_ROOT="${MEETINGCTL_REPO:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
    cd "$REPO_ROOT"
-   set -a; source .env; set +a
-   PYTHONPATH=src ./.venv/bin/python -m meetingctl.cli --help
-   PYTHONPATH=src ./.venv/bin/python -m meetingctl.cli status --json
+   bash scripts/meetingctl_cli.sh --help
+   bash scripts/meetingctl_cli.sh status --json
    ```
 
 4. **Configure hotkeys** (optional)
@@ -164,8 +163,7 @@ The Meeting Automation system provides one-keystroke UX for:
    ```bash
    REPO_ROOT="${MEETINGCTL_REPO:-$HOME/Documents/Dev/obsidian_meetings}"
    cd "$REPO_ROOT"
-   set -a; source .env; set +a
-   PYTHONPATH=src ./.venv/bin/python -m meetingctl.cli doctor --json
+   bash scripts/meetingctl_cli.sh doctor --json
    ```
 
 ### No notifications appear
@@ -200,19 +198,18 @@ If this repo lives in a different location:
 2. Edit each macro's shell script action
 3. Update paths to repo-local command form:
    - `cd <repo>`
-   - `set -a; source .env; set +a`
-   - `PYTHONPATH=src ./.venv/bin/python -m meetingctl.cli ...`
+   - `bash scripts/meetingctl_cli.sh ...`
 4. Save changes
 
 ## Next Steps
 
 - Customize hotkeys: See `HOTKEYS.md`
 - Setup Audio Hijack sessions: See `README.md`
-- Configure paths and LLM API: See `.env` configuration in README.md
+- Configure paths and LLM API: See env configuration in `docs/SETUP_AND_DEPENDENCIES.md`
 
 ## Support
 
 For issues or questions:
 - Check `README.md` for detailed setup instructions
-- Run `PYTHONPATH=src ./.venv/bin/python -m meetingctl.cli doctor --json` for diagnostics
+- Run `bash scripts/meetingctl_cli.sh doctor --json` for diagnostics
 - Review error messages in notifications for specific guidance

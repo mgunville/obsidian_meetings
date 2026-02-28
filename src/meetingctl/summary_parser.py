@@ -7,6 +7,19 @@ class SummaryParseError(ValueError):
     pass
 
 
+def _strip_list_prefix(value: str) -> str:
+    text = value.strip()
+    if text.startswith("- [ ] "):
+        return text[6:].strip()
+    if text.startswith("[ ] "):
+        return text[4:].strip()
+    if text.startswith("- "):
+        return text[2:].strip()
+    if text.startswith("* "):
+        return text[2:].strip()
+    return text
+
+
 def parse_summary_json(raw: str) -> dict[str, object]:
     try:
         payload = json.loads(raw)
@@ -35,8 +48,8 @@ def parse_summary_json(raw: str) -> dict[str, object]:
 
 
 def summary_to_patch_regions(parsed_summary: dict[str, object]) -> dict[str, str]:
-    decisions = parsed_summary["decisions"]
-    action_items = parsed_summary["action_items"]
+    decisions = [_strip_list_prefix(str(item)) for item in parsed_summary["decisions"]]
+    action_items = [_strip_list_prefix(str(item)) for item in parsed_summary["action_items"]]
     return {
         "minutes": str(parsed_summary["minutes"]),
         "decisions": "\n".join(f"- {item}" for item in decisions) if decisions else "> _Pending_",

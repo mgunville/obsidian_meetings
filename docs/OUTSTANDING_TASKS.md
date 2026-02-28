@@ -55,3 +55,7 @@ This is the single source of truth for active work. Other planning/audit docs ar
 - [ ] Resolve Anthropic API TLS trust issue in this runtime:
   - current error: SSL certificate verification failure
   - restore real Claude summary execution in `process-queue`
+- [ ] Post-backlog metadata normalization sweep (after meeting notes are moved to final folders):
+  - run `normalize-frontmatter` across target scopes
+  - ensure all target fields exist and are populated by location/context rules
+  - review unresolved blanks (`client`, `engagement`, `topic`, `opportunity_id`, `project_id`, `team`, `related_notes`)

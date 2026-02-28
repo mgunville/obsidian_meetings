@@ -4,6 +4,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+source "$ROOT_DIR/scripts/lib/load_dotenv.sh"
+
 if [[ ! -d ".venv" ]]; then
   echo "Missing .venv. Run install/setup first."
   exit 1
@@ -11,25 +13,7 @@ fi
 
 source .venv/bin/activate
 
-if [[ -f ".env" ]]; then
-  while IFS= read -r raw_line || [[ -n "$raw_line" ]]; do
-    line="${raw_line#"${raw_line%%[![:space:]]*}"}"
-    line="${line%"${line##*[![:space:]]}"}"
-    if [[ -z "$line" || "$line" == \#* ]]; then
-      continue
-    fi
-    if [[ "$line" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then
-      key="${line%%=*}"
-      value="${line#*=}"
-      if [[ "$value" =~ ^\".*\"$ ]]; then
-        value="${value:1:${#value}-2}"
-      elif [[ "$value" =~ ^\'.*\'$ ]]; then
-        value="${value:1:${#value}-2}"
-      fi
-      export "$key=$value"
-    fi
-  done < .env
-fi
+meetingctl_load_env "$ROOT_DIR"
 
 export PYTHONPATH=src
 

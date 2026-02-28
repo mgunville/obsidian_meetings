@@ -1,5 +1,14 @@
 ---
 type: meeting
+note_type: ""
+client: ""
+firm: "{{ firm_default }}"
+engagement: ""
+topic: []
+opportunity_id: ""
+project_id: ""
+team: []
+related_notes: []
 meeting_id: "{{ meeting_id }}"
 title: "{{ title }}"
 start: "{{ start_iso }}"

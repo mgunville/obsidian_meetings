@@ -55,6 +55,8 @@ def registered_commands() -> list[str]:
         "ingest-watch",
         "audit-notes",
         "normalize-frontmatter",
+        "failed-jobs",
+        "failed-jobs-requeue",
     ]
 
 
@@ -192,6 +194,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
     normalize_frontmatter_parser.add_argument("--json", action="store_true")
 
+    failed_jobs_parser = sub.add_parser("failed-jobs")
+    failed_jobs_parser.add_argument("--limit", type=int, default=20)
+    failed_jobs_parser.add_argument("--json", action="store_true")
+
+    failed_jobs_requeue_parser = sub.add_parser("failed-jobs-requeue")
+    failed_jobs_requeue_parser.add_argument("--max-items", type=int, default=0)
+    failed_jobs_requeue_parser.add_argument(
+        "--meeting-id",
+        action="append",
+        default=[],
+        help="Only requeue failed jobs matching meeting_id. Repeat for multiple IDs.",
+    )
+    failed_jobs_requeue_parser.add_argument("--json", action="store_true")
+
     event_parser = sub.add_parser("event")
     event_parser.add_argument("--now-or-next", type=int, default=5)
     event_parser.add_argument("--json", action="store_true")
@@ -231,6 +247,22 @@ def _process_queue_file() -> Path:
     ).expanduser()
 
 
+def _process_queue_failure_mode() -> str:
+    raw = os.environ.get("MEETINGCTL_PROCESS_QUEUE_FAILURE_MODE", "dead_letter").strip().lower()
+    if raw in {"stop", "dead_letter"}:
+        return raw
+    return "dead_letter"
+
+
+def _process_queue_dead_letter_file() -> Path:
+    return Path(
+        os.environ.get(
+            "MEETINGCTL_PROCESS_QUEUE_DEAD_LETTER_FILE",
+            "~/.local/state/meetingctl/process_queue.deadletter.jsonl",
+        )
+    ).expanduser()
+
+
 def _queue_process_trigger() -> Callable[[dict[str, object]], None]:
     queue_file = _process_queue_file()
 
@@ -241,6 +273,45 @@ def _queue_process_trigger() -> Callable[[dict[str, object]], None]:
             fh.write("\n")
 
     return _enqueue
+
+
+def _load_dead_letter_items(dead_letter_file: Path) -> list[dict[str, object]]:
+    if not dead_letter_file.exists():
+        return []
+    items: list[dict[str, object]] = []
+    for line in dead_letter_file.read_text(encoding="utf-8", errors="replace").splitlines():
+        row = line.strip()
+        if not row:
+            continue
+        try:
+            parsed = json.loads(row)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            items.append(parsed)
+    return items
+
+
+def _append_queue_payloads(payloads: list[dict[str, object]]) -> None:
+    if not payloads:
+        return
+    queue_file = _process_queue_file()
+    queue_file.parent.mkdir(parents=True, exist_ok=True)
+    with queue_file.open("a", encoding="utf-8") as fh:
+        for payload in payloads:
+            fh.write(json.dumps(payload))
+            fh.write("\n")
+
+
+def _write_dead_letter_items(dead_letter_file: Path, items: list[dict[str, object]]) -> None:
+    dead_letter_file.parent.mkdir(parents=True, exist_ok=True)
+    if not items:
+        dead_letter_file.unlink(missing_ok=True)
+        return
+    dead_letter_file.write_text(
+        "\n".join(json.dumps(item) for item in items) + "\n",
+        encoding="utf-8",
+    )
 
 
 def _processed_jobs_log_file() -> Path:
@@ -459,7 +530,40 @@ def _references_region(transcript_path: Path, audio_path: Path) -> str:
 
 
 def _default_queue_handler(payload: dict[str, object]) -> None:
-    context = _process_context_from_payload(payload)
+    try:
+        context = _process_context_from_payload(payload)
+    except ValueError as exc:
+        # Stale queue items can reference deleted/renamed recordings.
+        # Skip these so newer jobs are not blocked behind a dead entry.
+        if "Missing WAV input:" in str(exc):
+            return
+        raise
+
+    if not context.note_path.exists():
+        cfg = load_config()
+        candidates: list[Path] = []
+        pattern = re.compile(
+            rf"\s-\s*{re.escape(context.meeting_id)}(?:\s+\(\d+\))?\.md$",
+            re.IGNORECASE,
+        )
+        for candidate in cfg.vault_path.expanduser().resolve().rglob("*.md"):
+            if "_artifacts" in candidate.parts:
+                continue
+            if pattern.search(candidate.name):
+                candidates.append(candidate.resolve())
+        if candidates:
+            relocated_note_path = sorted(candidates)[0]
+            context = ProcessContext(
+                meeting_id=context.meeting_id,
+                note_path=relocated_note_path,
+                wav_path=context.wav_path,
+                transcript_path=context.transcript_path,
+                mp3_path=context.mp3_path,
+            )
+        else:
+            # Stale queue item; skip to unblock remaining jobs.
+            return
+
     transcript_runner = create_transcription_runner()
     active_recording_path = context.wav_path
 
@@ -1189,6 +1293,8 @@ def main() -> int:
                 queue_file=_process_queue_file(),
                 handler=_default_queue_handler,
                 max_jobs=max(args.max_jobs, 1),
+                failure_mode=_process_queue_failure_mode(),
+                dead_letter_file=_process_queue_dead_letter_file(),
             )
         except QueueLockError as exc:
             _print_payload({"error": str(exc)}, args.json)
@@ -1272,6 +1378,67 @@ def main() -> int:
         except Exception as exc:
             _print_payload({"error": str(exc)}, args.json)
             return 2
+        _print_payload(payload, args.json)
+        return 0
+    if args.command == "failed-jobs":
+        dead_letter_file = _process_queue_dead_letter_file()
+        items = _load_dead_letter_items(dead_letter_file)
+        limit = max(args.limit, 0)
+        tail = items[-limit:] if limit > 0 else items
+        payload = {
+            "dead_letter_file": str(dead_letter_file),
+            "count": len(items),
+            "items": tail,
+        }
+        _print_payload(payload, args.json)
+        return 0
+    if args.command == "failed-jobs-requeue":
+        dead_letter_file = _process_queue_dead_letter_file()
+        items = _load_dead_letter_items(dead_letter_file)
+        if not items:
+            payload = {
+                "dead_letter_file": str(dead_letter_file),
+                "queue_file": str(_process_queue_file()),
+                "requeued": 0,
+                "remaining_failed": 0,
+                "meeting_ids": [],
+            }
+            _print_payload(payload, args.json)
+            return 0
+
+        wanted_ids = {value.strip() for value in args.meeting_id if value.strip()}
+        max_items = max(args.max_items, 0)
+        take_remaining = max_items == 0
+        requeued_payloads: list[dict[str, object]] = []
+        kept_items: list[dict[str, object]] = []
+
+        for item in items:
+            payload_obj = item.get("payload")
+            if not isinstance(payload_obj, dict):
+                kept_items.append(item)
+                continue
+
+            meeting_id = str(payload_obj.get("meeting_id", "")).strip()
+            if wanted_ids and meeting_id not in wanted_ids:
+                kept_items.append(item)
+                continue
+
+            if not take_remaining and len(requeued_payloads) >= max_items:
+                kept_items.append(item)
+                continue
+
+            requeued_payloads.append(payload_obj)
+
+        _append_queue_payloads(requeued_payloads)
+        _write_dead_letter_items(dead_letter_file, kept_items)
+
+        payload = {
+            "dead_letter_file": str(dead_letter_file),
+            "queue_file": str(_process_queue_file()),
+            "requeued": len(requeued_payloads),
+            "remaining_failed": len(kept_items),
+            "meeting_ids": [str(item.get("meeting_id", "")) for item in requeued_payloads],
+        }
         _print_payload(payload, args.json)
         return 0
     return 0

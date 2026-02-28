@@ -4,6 +4,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+source "$ROOT_DIR/scripts/lib/load_dotenv.sh"
+
 if [[ $# -lt 1 ]]; then
   echo "Usage: $0 <audio-file-path>"
   exit 2
@@ -15,12 +17,7 @@ if [[ ! -f "$INPUT_PATH" ]]; then
   exit 1
 fi
 
-if [[ -f ".env" ]]; then
-  set -a
-  # shellcheck disable=SC1091
-  source .env
-  set +a
-fi
+meetingctl_load_env "$ROOT_DIR"
 
 RECORDINGS_ROOT="${RECORDINGS_PATH:-}"
 if [[ -z "$RECORDINGS_ROOT" ]]; then

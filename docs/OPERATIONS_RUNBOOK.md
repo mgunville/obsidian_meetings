@@ -9,13 +9,12 @@ Run from repo root:
 ```bash
 REPO_ROOT="${MEETINGCTL_REPO:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
 cd "$REPO_ROOT"
-set -a; source .env; set +a
 ```
 
 Recommended runtime for all commands:
 
 ```bash
-PYTHONPATH=src ./.venv/bin/python -m meetingctl.cli --help
+bash scripts/meetingctl_cli.sh --help
 ```
 
 Dependency checks:
@@ -30,7 +29,7 @@ which whisper
 Use a curated list of known-good `.m4a` files:
 
 ```bash
-RECORDINGS_PATH=~/Notes/audio PYTHONPATH=src ./.venv/bin/python -m meetingctl.cli backfill \
+RECORDINGS_PATH=~/Notes/audio bash scripts/meetingctl_cli.sh backfill \
   --extensions m4a \
   --file-list ~/Notes/audio/valid_m4a_manifest.txt \
   --match-calendar \
@@ -76,13 +75,13 @@ Set `MEETINGCTL_TEXT_ARTIFACTS_IN_VAULT=0` to keep text artifacts in `RECORDINGS
 Duplicate/identity check across meeting notes:
 
 ```bash
-PYTHONPATH=src ./.venv/bin/python -m meetingctl.cli audit-notes --json
+bash scripts/meetingctl_cli.sh audit-notes --json
 ```
 
 Dry-run calendar matching and export unmatched list:
 
 ```bash
-RECORDINGS_PATH=~/Notes/audio PYTHONPATH=src ./.venv/bin/python -m meetingctl.cli backfill \
+RECORDINGS_PATH=~/Notes/audio bash scripts/meetingctl_cli.sh backfill \
   --extensions m4a \
   --file-list ~/Notes/audio/valid_m4a_manifest.txt \
   --match-calendar \
@@ -131,7 +130,7 @@ This is repeatable and intended for transcript upgrades.
 - `No such file or directory` during manifest run:
   - stale manifest entry; run manifest hygiene.
 - `invalid x-api-key` / `401`:
-  - bad API key in `.env`.
+  - bad key value or unresolved 1Password ref in configured env file.
 - `model ... not found` / `404`:
   - wrong `MEETINGCTL_SUMMARY_MODEL`.
 - `moov atom not found`:
@@ -145,7 +144,8 @@ Use `docs/HAZEL_SETUP.md` as the source of truth. Both monitored folders should 
 
 ```bash
 REPO_ROOT="${MEETINGCTL_REPO:-$HOME/Documents/Dev/obsidian_meetings}"
-bash "$REPO_ROOT/scripts/hazel_ingest_file.sh" "$1" >> "$HOME/.local/state/meetingctl/hazel.log" 2>&1
+bash "$REPO_ROOT/scripts/secure_exec.sh" \
+  bash "$REPO_ROOT/scripts/hazel_ingest_file.sh" "$1" >> "$HOME/.local/state/meetingctl/hazel.log" 2>&1
 ```
 
 Recommended post-process metadata hygiene step:
@@ -153,8 +153,7 @@ Recommended post-process metadata hygiene step:
 ```bash
 REPO_ROOT="${MEETINGCTL_REPO:-$HOME/Documents/Dev/obsidian_meetings}"
 cd "$REPO_ROOT"
-set -a; source .env; set +a
-PYTHONPATH=src ./.venv/bin/python -m meetingctl.cli normalize-frontmatter --scope _Work --json
+bash scripts/meetingctl_cli.sh normalize-frontmatter --scope _Work --json
 ```
 
 ### Keyboard Maestro
@@ -163,15 +162,13 @@ PYTHONPATH=src ./.venv/bin/python -m meetingctl.cli normalize-frontmatter --scop
    - `config/km/Meeting-Automation-Macros.kmmacros`
 2. Ensure macro shell actions use repo-local runtime:
    - `REPO_ROOT="${MEETINGCTL_REPO:-$HOME/Documents/Dev/obsidian_meetings}" && cd "$REPO_ROOT"`
-   - `set -a; source .env; set +a`
-   - `PYTHONPATH=src ./.venv/bin/python -m meetingctl.cli ...`
+   - `bash scripts/meetingctl_cli.sh ...`
 3. Validate macro command path from terminal first:
 
 ```bash
 REPO_ROOT="${MEETINGCTL_REPO:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
 cd "$REPO_ROOT"
-set -a; source .env; set +a
-PYTHONPATH=src ./.venv/bin/python -m meetingctl.cli status --json
+bash scripts/meetingctl_cli.sh status --json
 ```
 
 4. UI/macros reference:

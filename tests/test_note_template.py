@@ -8,6 +8,7 @@ from meetingctl.note.template import render_meeting_note
 def test_template_render_includes_required_frontmatter_keys() -> None:
     output = render_meeting_note(
         {
+            "firm_default": "AHEAD",
             "meeting_id": "m-123",
             "title": "Weekly Sync",
             "start_iso": "2026-02-08T10:00:00+00:00",
@@ -23,6 +24,15 @@ def test_template_render_includes_required_frontmatter_keys() -> None:
 
     for key in [
         "type: meeting",
+        "note_type: \"\"",
+        "client: \"\"",
+        "firm: \"AHEAD\"",
+        "engagement: \"\"",
+        "topic: []",
+        "opportunity_id: \"\"",
+        "project_id: \"\"",
+        "team: []",
+        "related_notes: []",
         "meeting_id: \"m-123\"",
         "title: \"Weekly Sync\"",
         "start: \"2026-02-08T10:00:00+00:00\"",
@@ -39,6 +49,7 @@ def test_template_render_includes_required_frontmatter_keys() -> None:
 def test_template_render_contains_managed_sentinels() -> None:
     output = render_meeting_note(
         {
+            "firm_default": "AHEAD",
             "meeting_id": "m-123",
             "title": "Weekly Sync",
             "start_iso": "2026-02-08T10:00:00+00:00",

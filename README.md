@@ -28,20 +28,31 @@ Install separately:
 4. Run lint:
    - `ruff check .`
 5. Run doctor:
-   - `set -a; source .env; set +a`
-   - `PYTHONPATH=src python -m meetingctl.cli doctor --json`
+   - `bash scripts/meetingctl_cli.sh doctor --json`
+
+## Secret Management (Recommended)
+- Keep secrets out of repo/cloud-synced workspace paths.
+- Default secure env path is `~/.config/meetingctl/env` (overridable with `MEETINGCTL_DOTENV_PATH`).
+- Profile split (recommended):
+  - `~/.config/meetingctl/env.dev` (automation, lower friction)
+  - `~/.config/meetingctl/env.secure` (manual, higher assurance)
+  - initialize: `bash scripts/setup_env_profiles.sh`
+- Prefer 1Password secret refs in env file:
+  - `MEETINGCTL_ANTHROPIC_API_KEY_OP_REF=op://Private/Anthropic/api_key`
+- Run commands via secure wrapper:
+  - `bash scripts/meetingctl_cli.sh process-queue --json`
 
 ## Backfill Previous Recordings
 - Wrapper (recommended):
   - preview: `bash scripts/backfill_historical.sh`
   - apply: `bash scripts/backfill_historical.sh --apply`
 - Queue historical recordings:
-  - `PYTHONPATH=src python -m meetingctl.cli backfill --extensions wav,m4a --json`
+  - `bash scripts/meetingctl_cli.sh backfill --extensions wav,m4a --json`
 - Process immediately instead of queueing:
-  - `PYTHONPATH=src python -m meetingctl.cli backfill --extensions wav --process-now --json`
+  - `bash scripts/meetingctl_cli.sh backfill --extensions wav --process-now --json`
 - Calendar-assisted matching from filename timestamp (`yyyymmdd_hhmm`) or file timestamps:
-  - preview only: `PYTHONPATH=src python -m meetingctl.cli backfill --match-calendar --dry-run --json`
-  - with safe rename to canonical meeting IDs: `PYTHONPATH=src python -m meetingctl.cli backfill --match-calendar --rename --json`
+  - preview only: `bash scripts/meetingctl_cli.sh backfill --match-calendar --dry-run --json`
+  - with safe rename to canonical meeting IDs: `bash scripts/meetingctl_cli.sh backfill --match-calendar --rename --json`
 
 ## Automation Command
 - For Hazel/Keyboard Maestro file-driven automation, run:

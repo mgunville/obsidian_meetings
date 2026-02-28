@@ -19,6 +19,8 @@ pick_python_bin() {
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+source "$ROOT_DIR/scripts/lib/load_dotenv.sh"
+
 PYTHON_BIN="$(pick_python_bin || true)"
 if [ -z "$PYTHON_BIN" ]; then
   echo "A non-pyenv-shim python3.11 (preferred) or python3 (3.11+) is required."
@@ -67,9 +69,12 @@ if missing:
 print("Packaging backend check: OK")
 PY
 
-if [ ! -f .env ] && [ -f .env.example ]; then
-  cp .env.example .env
-  echo "Created .env from .env.example"
+DEFAULT_DOTENV_PATH="$(meetingctl_default_dotenv_path)"
+if [ ! -f "$DEFAULT_DOTENV_PATH" ] && [ -f .env.example ]; then
+  mkdir -p "$(dirname "$DEFAULT_DOTENV_PATH")"
+  cp .env.example "$DEFAULT_DOTENV_PATH"
+  chmod 600 "$DEFAULT_DOTENV_PATH" || true
+  echo "Created env file from .env.example at: $DEFAULT_DOTENV_PATH"
 fi
 
 chmod +x scripts/eventkit_fetch.py
@@ -93,25 +98,7 @@ else
   echo "WhisperX model link check: not linked (run scripts/bootstrap_whisperx_model.sh to download/link)"
 fi
 
-if [ -f .env ]; then
-  while IFS= read -r raw_line || [ -n "$raw_line" ]; do
-    line="${raw_line#"${raw_line%%[![:space:]]*}"}"
-    line="${line%"${line##*[![:space:]]}"}"
-    if [[ -z "$line" || "$line" == \#* ]]; then
-      continue
-    fi
-    if [[ "$line" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then
-      key="${line%%=*}"
-      value="${line#*=}"
-      if [[ "$value" =~ ^\".*\"$ ]]; then
-        value="${value:1:${#value}-2}"
-      elif [[ "$value" =~ ^\'.*\'$ ]]; then
-        value="${value:1:${#value}-2}"
-      fi
-      export "$key=$value"
-    fi
-  done < .env
-fi
+meetingctl_load_env "$ROOT_DIR"
 PYTHONPATH=src "$VENV_PY" -m meetingctl.cli doctor --json || true
 if ! "$VENV_PY" -m whisper --help >/dev/null 2>&1; then
   echo "Whisper CLI check: FAILED (run .venv/bin/pip install openai-whisper)"

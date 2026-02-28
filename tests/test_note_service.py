@@ -33,6 +33,7 @@ def test_create_note_from_event_writes_rendered_note(monkeypatch, tmp_path: Path
     content = note_path.read_text()
     assert "meeting_id:" in content
     assert "Weekly Sync" in content
+    assert 'firm: "AHEAD"' in content
 
 
 def test_infer_datetime_from_recording_path_uses_local_timezone(monkeypatch, tmp_path: Path) -> None:

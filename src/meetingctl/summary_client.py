@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import os
 import re
+import subprocess
 
 import anthropic
 
@@ -46,47 +48,172 @@ def _extract_candidate_json(raw_text: str) -> str:
     return raw_text
 
 
-def generate_summary(transcript: str, *, api_key: str) -> dict[str, object]:
-    """Generate meeting summary from transcript using LLM API.
+def _coerce_minutes(value: object, *, fallback_text: str) -> str:
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    if value is not None:
+        text = str(value).strip()
+        if text:
+            return text
+    cleaned = fallback_text.strip()
+    return cleaned if cleaned else "Summary unavailable."
 
-    Args:
-        transcript: Meeting transcript text
-        api_key: Anthropic API key
 
-    Returns:
-        Parsed summary dictionary with minutes, decisions, and action_items
+def _coerce_string_list(value: object) -> list[str]:
+    if isinstance(value, list):
+        items = [str(item).strip() for item in value if str(item).strip()]
+        return items
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return []
+        if "\n" in stripped:
+            lines = [
+                line.strip().lstrip("-").lstrip("*").strip()
+                for line in stripped.splitlines()
+                if line.strip()
+            ]
+            return [line for line in lines if line]
+        return [stripped]
+    if value is None:
+        return []
+    text = str(value).strip()
+    return [text] if text else []
 
-    Raises:
-        ValueError: If API key is missing
-        SummaryParseError: If LLM response is malformed
-    """
-    if not api_key:
-        raise ValueError("API key is required")
 
-    client = anthropic.Anthropic(api_key=api_key)
+def _coerce_action_items(value: object) -> list[str]:
+    if isinstance(value, list):
+        normalized: list[str] = []
+        for item in value:
+            if isinstance(item, dict):
+                owner = str(item.get("owner") or "Unknown").strip() or "Unknown"
+                task = str(item.get("task") or item.get("action") or item.get("title") or "").strip()
+                due = str(item.get("due") or item.get("deadline") or "TBD").strip() or "TBD"
+                if task:
+                    normalized.append(f"Owner: {owner}; Task: {task}; Due: {due}")
+                continue
+            text = str(item).strip()
+            if not text:
+                continue
+            if "Owner:" in text and "Task:" in text:
+                normalized.append(text)
+            else:
+                normalized.append(f"Owner: Unknown; Task: {text}; Due: TBD")
+        return normalized
+    if isinstance(value, str):
+        items = _coerce_string_list(value)
+        return [f"Owner: Unknown; Task: {item}; Due: TBD" for item in items]
+    return []
 
-    prompt = f"""You are a meeting assistant. Given the following meeting transcript, generate a structured summary.
 
-Transcript:
-{transcript}
+def _coerce_summary_payload(raw_text: str) -> dict[str, object]:
+    candidate = _extract_candidate_json(raw_text)
+    payload: dict[str, object] = {}
+    for source in (candidate, raw_text):
+        try:
+            loaded = json.loads(source)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(loaded, dict):
+            payload = loaded
+            break
 
-Respond with ONLY a JSON object in this exact format:
-{{
-  "minutes": "A brief summary of the meeting (2-3 sentences)",
-  "decisions": ["Decision 1", "Decision 2"],
-  "action_items": ["Action item 1", "Action item 2"]
-}}
+    minutes = _coerce_minutes(
+        payload.get("minutes") if payload else None,
+        fallback_text=raw_text,
+    )
+    decisions = _coerce_string_list(
+        payload.get("decisions") if payload else None,
+    )
+    action_items = _coerce_action_items(
+        payload.get("action_items") if payload else None,
+    )
 
-If there are no decisions or action items, use empty arrays.
-"""
+    return {
+        "minutes": minutes,
+        "decisions": decisions,
+        "action_items": action_items,
+    }
 
+
+def _summary_max_tokens() -> int:
+    raw = os.environ.get("MEETINGCTL_SUMMARY_MAX_TOKENS", "").strip()
+    if not raw:
+        return 2048
+    try:
+        return max(int(raw), 512)
+    except ValueError:
+        return 2048
+
+
+def _repair_max_tokens() -> int:
+    raw = os.environ.get("MEETINGCTL_SUMMARY_REPAIR_MAX_TOKENS", "").strip()
+    if not raw:
+        return 1024
+    try:
+        return max(int(raw), 256)
+    except ValueError:
+        return 1024
+
+
+def _summary_timeout_seconds() -> float:
+    raw = os.environ.get("MEETINGCTL_SUMMARY_TIMEOUT_SECONDS", "").strip()
+    if not raw:
+        return 120.0
+    try:
+        return max(float(raw), 5.0)
+    except ValueError:
+        return 120.0
+
+
+def _read_onepassword_secret(ref: str) -> str:
+    try:
+        completed = subprocess.run(
+            ["op", "read", ref],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError as exc:
+        raise RuntimeError(
+            "1Password CLI (`op`) is not installed or not on PATH."
+        ) from exc
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or str(exc)).strip()
+        raise RuntimeError(f"Failed to read 1Password secret ref {ref}: {detail}") from exc
+    value = completed.stdout.strip()
+    if not value:
+        raise RuntimeError(f"1Password returned empty secret for ref {ref}.")
+    return value
+
+
+def _resolve_api_key(api_key: str) -> str:
+    direct = api_key.strip()
+    ref_from_env = os.environ.get("MEETINGCTL_ANTHROPIC_API_KEY_OP_REF", "").strip()
+
+    if direct.startswith("op://"):
+        return _read_onepassword_secret(direct)
+    if direct:
+        return direct
+    if ref_from_env:
+        return _read_onepassword_secret(ref_from_env)
+    return ""
+
+
+def _request_text_with_model_fallback(
+    *,
+    client: anthropic.Anthropic,
+    prompt: str,
+    max_tokens: int,
+) -> str:
     last_exc: Exception | None = None
     response = None
     for model in _summary_model_candidates():
         try:
             response = client.messages.create(
                 model=model,
-                max_tokens=1024,
+                max_tokens=max_tokens,
+                temperature=0,
                 messages=[
                     {
                         "role": "user",
@@ -112,14 +239,107 @@ If there are no decisions or action items, use empty arrays.
             "No summary model candidates configured. "
             "Set MEETINGCTL_SUMMARY_MODEL to a valid Anthropic model."
         )
+    return _extract_text_content(response)
 
-    response_text = _extract_text_content(response)
 
-    # Parse and validate the response, tolerating fenced/prose-wrapped JSON.
+def _parse_summary_payload(raw_text: str) -> dict[str, object]:
     try:
-        return parse_summary_json(response_text)
+        return parse_summary_json(raw_text)
     except SummaryParseError:
-        candidate = _extract_candidate_json(response_text)
-        if candidate == response_text:
-            raise
-        return parse_summary_json(candidate)
+        candidate = _extract_candidate_json(raw_text)
+        if candidate != raw_text:
+            return parse_summary_json(candidate)
+        raise
+
+
+def _repair_summary_json(
+    *,
+    client: anthropic.Anthropic,
+    malformed_text: str,
+) -> dict[str, object]:
+    repair_prompt = f"""Convert the following assistant output into valid JSON.
+
+Requirements:
+- Output ONLY valid JSON (no prose, no markdown fences).
+- Include exactly these keys:
+  - "minutes" (string)
+  - "decisions" (array of strings)
+  - "action_items" (array of strings)
+- Keep all useful detail from the source when possible.
+- If a field is missing/unknown, use empty string for minutes or empty arrays for lists.
+
+Source output:
+{malformed_text}
+"""
+    repaired_text = _request_text_with_model_fallback(
+        client=client,
+        prompt=repair_prompt,
+        max_tokens=_repair_max_tokens(),
+    )
+    try:
+        return _parse_summary_payload(repaired_text)
+    except SummaryParseError:
+        return _coerce_summary_payload(repaired_text or malformed_text)
+
+
+def generate_summary(transcript: str, *, api_key: str) -> dict[str, object]:
+    """Generate meeting summary from transcript using LLM API.
+
+    Args:
+        transcript: Meeting transcript text
+        api_key: Anthropic API key
+
+    Returns:
+        Parsed summary dictionary with minutes, decisions, and action_items
+
+    Raises:
+        ValueError: If API key is missing
+        SummaryParseError: If LLM response is malformed
+    """
+    resolved_api_key = _resolve_api_key(api_key)
+    if not resolved_api_key:
+        raise ValueError("API key is required")
+
+    client = anthropic.Anthropic(
+        api_key=resolved_api_key,
+        timeout=_summary_timeout_seconds(),
+    )
+
+    prompt = f"""You are a meeting assistant. Given the following meeting transcript, generate a structured summary.
+
+Transcript:
+{transcript}
+
+Respond with ONLY a JSON object in this exact format:
+{{
+  "minutes": "Markdown text with sectioned bullets and sub-bullets",
+  "decisions": ["Decision 1", "Decision 2"],
+  "action_items": ["Owner: <name or Unknown>; Task: <action>; Due: <date or TBD>"]
+}}
+
+Formatting rules:
+- `minutes` must be detailed and use markdown bullets/sub-bullets with clear sections in this order:
+  1) Meeting Details (title/date/time if inferable, including UTC and US Central when available)
+  2) Attendees (participants and inferred roles if available)
+  3) Agenda
+  4) Key Themes & Pain Points
+  5) Minutes & Decisions (discussion narrative in structured bullets)
+- Keep `minutes` concise but thorough; prefer nested bullets for readability.
+- `decisions` must be a list of concise, stand-alone decision statements.
+- `action_items` must be a list where each item follows:
+  "Owner: <name or Unknown>; Task: <action>; Due: <date or TBD>"
+- If no decisions or action items exist, use empty arrays.
+- Do not include markdown code fences.
+"""
+
+    response_text = _request_text_with_model_fallback(
+        client=client,
+        prompt=prompt,
+        max_tokens=_summary_max_tokens(),
+    )
+
+    # Parse and validate response, then attempt one repair pass if malformed.
+    try:
+        return _parse_summary_payload(response_text)
+    except SummaryParseError:
+        return _repair_summary_json(client=client, malformed_text=response_text)

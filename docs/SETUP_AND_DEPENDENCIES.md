@@ -12,7 +12,18 @@ This does:
 - marks `scripts/eventkit_fetch.py` executable
 - uses a non-`pyenv` shim Python binary to avoid PEP 668/system-package conflicts
 
-## 2) Required Environment Variables (`.env`)
+## 2) Required Environment Variables
+Preferred env file location:
+- `~/.config/meetingctl/env`
+- override with `MEETINGCTL_DOTENV_PATH=/absolute/path/to/env`
+- optional profile-based files:
+  - `~/.config/meetingctl/env.dev`
+  - `~/.config/meetingctl/env.secure`
+  - selected via `MEETINGCTL_ENV_PROFILE=dev|secure`
+
+Legacy fallback:
+- repo-local `.env` is still supported but not recommended for secrets.
+
 Minimum required:
 - `VAULT_PATH=~/Notes/notes-vault/`
 - `RECORDINGS_PATH=~/Notes/recordings`
@@ -27,7 +38,8 @@ Optional (already documented in `.env.example`):
 - `MEETINGCTL_STATE_FILE=~/.local/state/meetingctl/current.json`
 - `MEETINGCTL_PROCESS_QUEUE_FILE=~/.local/state/meetingctl/process_queue.jsonl`
 - `MEETINGCTL_PROCESSED_JOBS_FILE=~/.local/state/meetingctl/processed_jobs.jsonl`
-- `ANTHROPIC_API_KEY=...`
+- `ANTHROPIC_API_KEY=...` (direct key, optional if using 1Password ref)
+- `MEETINGCTL_ANTHROPIC_API_KEY_OP_REF=op://Private/Anthropic/api_key` (recommended)
 - `MEETINGCTL_SUMMARY_MODEL=claude-3-5-sonnet-latest` (optional; set if your account cannot access the default model)
 - `MEETINGCTL_PROCESSING_SUMMARY_JSON={"minutes":"...","decisions":[],"action_items":[]}` (optional no-API local test override)
 
@@ -79,7 +91,7 @@ Permission probe:
 
 ## 5) Validation Checklist
 1. `.venv/bin/python -m pytest`
-2. `set -a && source .env && set +a && PYTHONPATH=src .venv/bin/python -m meetingctl.cli doctor --json`
+2. `bash scripts/meetingctl_cli.sh doctor --json`
 3. `.venv/bin/python -m whisper --help`
 4. Local smoke:
 - `bash scripts/smoke-test.sh`
@@ -131,3 +143,10 @@ Permission probe:
   - New `.wav` in `RECORDINGS_PATH` older than `MEETINGCTL_INGEST_MIN_AGE_SECONDS`.
 - Full Hazel rule details:
   - `docs/HAZEL_SETUP.md`
+
+## 9) 1Password Integration
+- If your env file contains `op://...` references, use `scripts/meetingctl_cli.sh` (or `scripts/secure_exec.sh`) to run commands.
+- The wrapper will use `op run --env-file ...` when possible, otherwise local dotenv loading.
+- `meetingctl` also resolves `MEETINGCTL_ANTHROPIC_API_KEY_OP_REF` at runtime via `op read`.
+- Create split profiles (recommended):
+  - `bash scripts/setup_env_profiles.sh`

@@ -6,7 +6,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from meetingctl.summary_client import generate_summary
-from meetingctl.summary_parser import SummaryParseError
 
 
 @patch("meetingctl.summary_client.anthropic.Anthropic")
@@ -48,7 +47,7 @@ def test_generate_summary_sends_transcript_to_llm(mock_anthropic_class: MagicMoc
 
 @patch("meetingctl.summary_client.anthropic.Anthropic")
 def test_generate_summary_handles_malformed_json(mock_anthropic_class: MagicMock) -> None:
-    """Test that generate_summary fails safely on malformed JSON response."""
+    """Test that generate_summary coerces malformed responses instead of failing."""
     mock_client = MagicMock()
     mock_anthropic_class.return_value = mock_client
 
@@ -57,8 +56,75 @@ def test_generate_summary_handles_malformed_json(mock_anthropic_class: MagicMock
     mock_response.content[0].text = "This is not valid JSON"
     mock_client.messages.create.return_value = mock_response
 
-    with pytest.raises(SummaryParseError):
-        generate_summary("Test transcript", api_key="test-key")
+    parsed = generate_summary("Test transcript", api_key="test-key")
+    assert parsed["minutes"] == "This is not valid JSON"
+    assert parsed["decisions"] == []
+    assert parsed["action_items"] == []
+
+
+@patch("meetingctl.summary_client.anthropic.Anthropic")
+def test_generate_summary_repairs_malformed_json_with_second_pass(
+    mock_anthropic_class: MagicMock,
+) -> None:
+    mock_client = MagicMock()
+    mock_anthropic_class.return_value = mock_client
+
+    first_response = MagicMock()
+    first_response.content = [SimpleNamespace(text="Not JSON output")]
+    second_response = MagicMock()
+    second_response.content = [
+        SimpleNamespace(text='{"minutes":"Recovered","decisions":["D1"],"action_items":["A1"]}')
+    ]
+    mock_client.messages.create.side_effect = [first_response, second_response]
+
+    parsed = generate_summary("Test transcript", api_key="test-key")
+    assert parsed["minutes"] == "Recovered"
+    assert parsed["decisions"] == ["D1"]
+    assert parsed["action_items"] == ["A1"]
+    assert mock_client.messages.create.call_count == 2
+
+
+@patch("meetingctl.summary_client.anthropic.Anthropic")
+def test_generate_summary_coerces_when_repair_is_still_not_json(
+    mock_anthropic_class: MagicMock,
+) -> None:
+    mock_client = MagicMock()
+    mock_anthropic_class.return_value = mock_client
+
+    first_response = MagicMock()
+    first_response.content = [SimpleNamespace(text="Not JSON output")]
+    second_response = MagicMock()
+    second_response.content = [SimpleNamespace(text="Still not JSON after repair")]
+    mock_client.messages.create.side_effect = [first_response, second_response]
+
+    parsed = generate_summary("Test transcript", api_key="test-key")
+    assert parsed["minutes"] == "Still not JSON after repair"
+    assert parsed["decisions"] == []
+    assert parsed["action_items"] == []
+    assert mock_client.messages.create.call_count == 2
+
+
+@patch("meetingctl.summary_client.anthropic.Anthropic")
+def test_generate_summary_coerces_action_item_dicts_from_repair(
+    mock_anthropic_class: MagicMock,
+) -> None:
+    mock_client = MagicMock()
+    mock_anthropic_class.return_value = mock_client
+
+    first_response = MagicMock()
+    first_response.content = [SimpleNamespace(text="Not JSON output")]
+    second_response = MagicMock()
+    second_response.content = [
+        SimpleNamespace(
+            text='{"minutes":"Recovered","decisions":["D1"],"action_items":[{"owner":"Alex","task":"Send recap","due":"2026-03-01"}]}'
+        )
+    ]
+    mock_client.messages.create.side_effect = [first_response, second_response]
+
+    parsed = generate_summary("Test transcript", api_key="test-key")
+    assert parsed["minutes"] == "Recovered"
+    assert parsed["decisions"] == ["D1"]
+    assert parsed["action_items"] == ["Owner: Alex; Task: Send recap; Due: 2026-03-01"]
 
 
 @patch("meetingctl.summary_client.anthropic.Anthropic")
@@ -75,7 +141,54 @@ def test_generate_summary_uses_api_key_from_param(mock_anthropic_class: MagicMoc
     generate_summary("Test", api_key="my-secret-key")
 
     # Verify client was initialized with API key
-    mock_anthropic_class.assert_called_once_with(api_key="my-secret-key")
+    mock_anthropic_class.assert_called_once()
+    kwargs = mock_anthropic_class.call_args.kwargs
+    assert kwargs["api_key"] == "my-secret-key"
+
+
+@patch("meetingctl.summary_client.subprocess.run")
+@patch("meetingctl.summary_client.anthropic.Anthropic")
+def test_generate_summary_resolves_api_key_from_op_ref_param(
+    mock_anthropic_class: MagicMock, mock_subprocess_run: MagicMock
+) -> None:
+    mock_subprocess_run.return_value = SimpleNamespace(stdout="resolved-key\n")
+
+    mock_client = MagicMock()
+    mock_anthropic_class.return_value = mock_client
+    mock_response = MagicMock()
+    mock_response.content = [SimpleNamespace(text='{"minutes":"ok","decisions":[],"action_items":[]}')]
+    mock_client.messages.create.return_value = mock_response
+
+    generate_summary("Test", api_key="op://Private/Anthropic/api_key")
+
+    mock_subprocess_run.assert_called_once()
+    mock_anthropic_class.assert_called_once()
+    kwargs = mock_anthropic_class.call_args.kwargs
+    assert kwargs["api_key"] == "resolved-key"
+
+
+@patch("meetingctl.summary_client.subprocess.run")
+@patch("meetingctl.summary_client.anthropic.Anthropic")
+def test_generate_summary_resolves_api_key_from_env_op_ref(
+    mock_anthropic_class: MagicMock,
+    mock_subprocess_run: MagicMock,
+    monkeypatch,
+) -> None:
+    mock_subprocess_run.return_value = SimpleNamespace(stdout="resolved-from-env\n")
+
+    mock_client = MagicMock()
+    mock_anthropic_class.return_value = mock_client
+    mock_response = MagicMock()
+    mock_response.content = [SimpleNamespace(text='{"minutes":"ok","decisions":[],"action_items":[]}')]
+    mock_client.messages.create.return_value = mock_response
+    monkeypatch.setenv("MEETINGCTL_ANTHROPIC_API_KEY_OP_REF", "op://Private/Anthropic/api_key")
+
+    generate_summary("Test", api_key="")
+
+    mock_subprocess_run.assert_called_once()
+    mock_anthropic_class.assert_called_once()
+    kwargs = mock_anthropic_class.call_args.kwargs
+    assert kwargs["api_key"] == "resolved-from-env"
 
 
 def test_generate_summary_requires_api_key() -> None:

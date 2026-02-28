@@ -131,8 +131,7 @@ After customization:
    # Verify CLI still works
    REPO_ROOT="${MEETINGCTL_REPO:-$HOME/Documents/Dev/obsidian_meetings}"
    cd "$REPO_ROOT"
-   set -a; source .env; set +a
-   PYTHONPATH=src ./.venv/bin/python -m meetingctl.cli status --json
+   bash scripts/meetingctl_cli.sh status --json
    ```
 
 2. **Test in different apps**

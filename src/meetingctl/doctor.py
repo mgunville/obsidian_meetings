@@ -50,7 +50,7 @@ def run_doctor() -> dict[str, object]:
             "name": "vault_path",
             "ok": bool(vault_path),
             "message": "Vault path is set." if vault_path else "Vault path is missing.",
-            "hint": "Set VAULT_PATH in your .env file.",
+            "hint": "Set VAULT_PATH in your configured env file.",
         }
     )
 
@@ -60,7 +60,7 @@ def run_doctor() -> dict[str, object]:
             "name": "recordings_path",
             "ok": bool(recordings_path),
             "message": "Recordings path is set." if recordings_path else "Recordings path is missing.",
-            "hint": "Set RECORDINGS_PATH in your .env file.",
+            "hint": "Set RECORDINGS_PATH in your configured env file.",
         }
     )
 

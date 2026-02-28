@@ -110,6 +110,7 @@ def _write_note(
     note_path = ensure_collision_safe_path(note_dir / filename)
     rendered = render_meeting_note(
         {
+            "firm_default": os.environ.get("MEETINGCTL_DEFAULT_FIRM", "AHEAD").strip() or "AHEAD",
             "meeting_id": meeting_id,
             "title": title,
             "start_iso": start_iso,

@@ -11,6 +11,7 @@ Use this file as the top-level map for project documentation.
 - `docs/OPERATIONS_RUNBOOK.md`: operational commands for batch processing and maintenance.
 - `docs/VAULT_METADATA_NORMALIZATION_RUNBOOK.md`: planned transcript-links-only and frontmatter normalization approach.
 - `docs/HAZEL_SETUP.md`: file-triggered ingest automation setup.
+- `docs/SECURITY_SECRETS.md`: secret handling, 1Password integration, and runtime hardening.
 - `docs/RELEASE_AUDIT_2026-02-09.md`: latest release readiness audit baseline.
 - `docs/TDD_AND_DOD.md`: engineering quality gates and definition of done.
 - `docs/WORKING_CHARTER.md`: day-to-day operating rules.

@@ -48,6 +48,11 @@ class WhisperTranscriptionRunner:
         ]
         try:
             result = self.runner(command, check=True)
+        except subprocess.TimeoutExpired as exc:
+            timeout = _transcription_timeout_seconds()
+            raise TranscriptionError(
+                f"Whisper timed out after {timeout}s for {wav_path}"
+            ) from exc
         except subprocess.CalledProcessError as exc:
             detail = _extract_transcriber_failure_detail(_process_text(exc))
             raise TranscriptionError(f"Whisper failed for {wav_path}: {detail}") from exc
@@ -104,6 +109,11 @@ class WhisperXTranscriptionRunner:
             command.extend(["--vad_method", self.vad_method])
         try:
             result = self.runner(command, check=True)
+        except subprocess.TimeoutExpired as exc:
+            timeout = _transcription_timeout_seconds()
+            raise TranscriptionError(
+                f"WhisperX timed out after {timeout}s for {wav_path}"
+            ) from exc
         except subprocess.CalledProcessError as exc:
             detail = _extract_transcriber_failure_detail(_process_text(exc))
             raise TranscriptionError(f"WhisperX failed for {wav_path}: {detail}") from exc
@@ -199,7 +209,13 @@ def _promote_transcript_artifacts(
 
 
 def _subprocess_run_captured(args: list[str], *, check: bool = True) -> subprocess.CompletedProcess:
-    completed = subprocess.run(args, check=False, capture_output=True, text=True)
+    completed = subprocess.run(
+        args,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=_transcription_timeout_seconds(),
+    )
     if check and completed.returncode != 0:
         raise subprocess.CalledProcessError(
             completed.returncode,
@@ -208,6 +224,17 @@ def _subprocess_run_captured(args: list[str], *, check: bool = True) -> subproce
             stderr=completed.stderr,
         )
     return completed
+
+
+def _transcription_timeout_seconds() -> int:
+    raw = os.environ.get("MEETINGCTL_TRANSCRIPTION_TIMEOUT_SECONDS", "").strip()
+    if not raw:
+        return 1800
+    try:
+        value = int(raw)
+    except ValueError:
+        return 1800
+    return max(value, 30)
 
 
 def _process_text(result: object) -> str:

@@ -69,3 +69,38 @@ def test_queue_worker_raises_on_lock_contention(tmp_path: Path) -> None:
 
     with pytest.raises(QueueLockError):
         process_queue_jobs(queue_file=queue_file, handler=lambda payload: None, max_jobs=1)
+
+
+def test_queue_worker_dead_letters_failures_and_continues(tmp_path: Path) -> None:
+    queue_file = tmp_path / "queue.jsonl"
+    dead_letter = tmp_path / "queue.deadletter.jsonl"
+    _write_queue(
+        queue_file,
+        [{"meeting_id": "m-1"}, {"meeting_id": "m-2"}, {"meeting_id": "m-3"}],
+    )
+    seen: list[str] = []
+
+    def handler(payload: dict[str, object]) -> None:
+        meeting_id = str(payload["meeting_id"])
+        if meeting_id == "m-2":
+            raise RuntimeError("boom")
+        seen.append(meeting_id)
+
+    result = process_queue_jobs(
+        queue_file=queue_file,
+        handler=handler,
+        max_jobs=3,
+        failure_mode="dead_letter",
+        dead_letter_file=dead_letter,
+    )
+
+    assert seen == ["m-1", "m-3"]
+    assert result["processed_jobs"] == 2
+    assert result["failed_jobs"] == 1
+    assert result["remaining_jobs"] == 0
+    assert not queue_file.exists()
+    lines = dead_letter.read_text().strip().splitlines()
+    assert len(lines) == 1
+    payload = json.loads(lines[0])
+    assert payload["error"] == "boom"
+    assert payload["payload"]["meeting_id"] == "m-2"

@@ -31,7 +31,7 @@ def load_config(env: dict[str, str] | None = None) -> Config:
         raise ConfigError(
             "Missing required config keys: "
             + ", ".join(missing)
-            + ". Set them in your environment or .env file."
+            + ". Set them in your environment or configured env file."
         )
 
     return Config(

@@ -5,13 +5,13 @@
       "name": "vault_path",
       "ok": false,
       "message": "Vault path is missing.",
-      "hint": "Set VAULT_PATH in your .env file."
+      "hint": "Set VAULT_PATH in your configured env file."
     },
     {
       "name": "recordings_path",
       "ok": false,
       "message": "Recordings path is missing.",
-      "hint": "Set RECORDINGS_PATH in your .env file."
+      "hint": "Set RECORDINGS_PATH in your configured env file."
     },
     {
       "name": "calendar_backend",
