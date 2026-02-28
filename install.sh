@@ -73,3 +73,13 @@ echo "3) Run tests:"
 echo "   .venv/bin/python -m pytest"
 echo "4) Run one-file transcription smoke check:"
 echo "   .venv/bin/python -m whisper --help | head -n 5"
+
+# Optional security hook setup
+if command -v pre-commit >/dev/null 2>&1; then
+  if [ -d .git ]; then
+    pre-commit install --install-hooks || true
+    echo "pre-commit hooks installed (including gitleaks)."
+  fi
+else
+  echo "Optional: install pre-commit to enable gitleaks hooks."
+fi
