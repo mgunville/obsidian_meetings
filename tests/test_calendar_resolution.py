@@ -14,6 +14,7 @@ from meetingctl.calendar.backends import (
 )
 from meetingctl.calendar.service import (
     CalendarResolutionError,
+    resolve_event_near_now,
     resolve_event_near_timestamp,
     resolve_now_or_next_event,
 )
@@ -176,6 +177,78 @@ def test_resolve_event_near_timestamp_boundary_prefers_new_meeting() -> None:
     payload = resolve_event_near_timestamp(at=at, window_minutes=90, eventkit=eventkit, jxa=jxa)
     assert payload is not None
     assert payload["title"] == "Next"
+
+
+def test_resolve_event_near_now_uses_forward_then_backward_stages() -> None:
+    now = datetime(2026, 2, 8, 10, 0, tzinfo=UTC)
+    eventkit = EventKitBackend(
+        loader=lambda: [
+            {
+                "title": "Future 12",
+                "start": "2026-02-08T10:12:00+00:00",
+                "end": "2026-02-08T10:30:00+00:00",
+                "calendar_name": "Work",
+                "location": "",
+                "notes": "",
+                "url": "",
+            },
+            {
+                "title": "Future 4",
+                "start": "2026-02-08T10:04:00+00:00",
+                "end": "2026-02-08T10:30:00+00:00",
+                "calendar_name": "Work",
+                "location": "",
+                "notes": "",
+                "url": "",
+            },
+            {
+                "title": "Past 3",
+                "start": "2026-02-08T09:57:00+00:00",
+                "end": "2026-02-08T10:30:00+00:00",
+                "calendar_name": "Work",
+                "location": "",
+                "notes": "",
+                "url": "",
+            },
+        ]
+    )
+    payload = resolve_event_near_now(
+        now=now,
+        forward_minutes=10,
+        backward_minutes=15,
+        eventkit=eventkit,
+        jxa=JXABackend(loader=lambda: []),
+    )
+    assert payload is not None
+    assert payload["title"] == "Future 4"
+    assert payload["match_stage"] == 1
+    assert payload["match_distance_minutes"] == 4.0
+
+
+def test_resolve_event_near_now_respects_limits_and_returns_none_outside_window() -> None:
+    now = datetime(2026, 2, 8, 10, 0, tzinfo=UTC)
+    eventkit = EventKitBackend(
+        loader=lambda: [
+            {
+                "title": "Too Far Future",
+                "start": "2026-02-08T10:20:00+00:00",
+                "end": "2026-02-08T11:00:00+00:00",
+            },
+            {
+                "title": "Too Far Past",
+                "start": "2026-02-08T09:40:00+00:00",
+                "end": "2026-02-08T10:10:00+00:00",
+            },
+        ]
+    )
+    payload = resolve_event_near_now(
+        now=now,
+        forward_minutes=10,
+        backward_minutes=15,
+        eventkit=eventkit,
+        jxa=JXABackend(loader=lambda: []),
+    )
+    assert payload is None
 
 
 def test_resolution_error_includes_backend_and_doctor_hint() -> None:

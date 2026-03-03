@@ -18,6 +18,7 @@ from meetingctl.commands import (
 )
 from meetingctl.calendar.service import (
     CalendarResolutionError,
+    resolve_event_near_now,
     resolve_event_candidates_near_timestamp,
     resolve_event_near_timestamp,
     resolve_now_or_next_event,
@@ -31,9 +32,10 @@ from meetingctl.note.service import (
     create_note_from_event,
     infer_datetime_from_recording_path,
     preview_note_from_event,
+    resolve_existing_note_for_event_start,
 )
 from meetingctl.metadata import normalize_frontmatter
-from meetingctl.process import ProcessContext, ProcessResult, run_processing
+from meetingctl.process import ProcessContext, run_processing
 from meetingctl.queue_worker import QueueLockError, process_queue_jobs
 from meetingctl.recording import AudioHijackRecorder
 from meetingctl.runtime_state import RuntimeStateStore
@@ -173,6 +175,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--window-minutes",
         type=int,
         default=_env_int("MEETINGCTL_MATCH_WINDOW_MINUTES", 30),
+    )
+    ingest_parser.add_argument(
+        "--forward-minutes",
+        type=int,
+        default=_env_int("MEETINGCTL_INGEST_FORWARD_WINDOW_MINUTES", 10),
+        help="For --match-calendar, max minutes ahead of now to consider event starts.",
+    )
+    ingest_parser.add_argument(
+        "--backward-minutes",
+        type=int,
+        default=_env_int("MEETINGCTL_INGEST_BACKWARD_WINDOW_MINUTES", 15),
+        help="For --match-calendar, max minutes behind now to consider event starts.",
     )
     ingest_parser.add_argument("--process-now", action="store_true")
     ingest_parser.add_argument("--json", action="store_true")
@@ -320,6 +334,36 @@ def _processed_jobs_log_file() -> Path:
             "MEETINGCTL_PROCESSED_JOBS_FILE", "~/.local/state/meetingctl/processed_jobs.jsonl"
         )
     ).expanduser()
+
+
+def _audio_done_mode() -> str:
+    raw = os.environ.get("MEETINGCTL_AUDIO_DONE_MODE", "sidecar").strip().lower()
+    if raw in {"none", "sidecar"}:
+        return raw
+    return "sidecar"
+
+
+def _audio_done_marker_path(audio_path: Path) -> Path:
+    return audio_path.with_name(f"{audio_path.name}.done.json")
+
+
+def _mark_audio_done(*, audio_path: Path, meeting_id: str, note_path: Path) -> Path | None:
+    if _audio_done_mode() == "none":
+        return None
+    marker_path = _audio_done_marker_path(audio_path)
+    marker_path.write_text(
+        json.dumps(
+            {
+                "meeting_id": meeting_id,
+                "note_path": str(note_path),
+                "audio_path": str(audio_path),
+                "processed_at": _now_utc().isoformat(),
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return marker_path
 
 
 def _ingested_files_log_file() -> Path:
@@ -614,12 +658,20 @@ def _default_queue_handler(payload: dict[str, object]) -> None:
             updates=updates,
             dry_run=False,
         )
+    canonical_audio_path = result.mp3_path.resolve()
+    marker_path = _mark_audio_done(
+        audio_path=canonical_audio_path,
+        meeting_id=result.meeting_id,
+        note_path=result.note_path,
+    )
 
     log_file = _processed_jobs_log_file()
     log_file.parent.mkdir(parents=True, exist_ok=True)
     processed_payload = {
         "meeting_id": result.meeting_id,
         "note_path": str(result.note_path),
+        "audio_path": str(canonical_audio_path),
+        "audio_done_marker": str(marker_path) if marker_path else "",
         "transcript_path": str(result.transcript_path),
         "mp3_path": str(result.mp3_path),
         "reused_transcript": result.reused_transcript,
@@ -714,6 +766,8 @@ def _ingest_wav_files_once(
     extensions: list[str],
     match_calendar: bool,
     window_minutes: int,
+    forward_minutes: int,
+    backward_minutes: int,
     process_now: bool,
 ) -> dict[str, object]:
     if process_now:
@@ -738,10 +792,13 @@ def _ingest_wav_files_once(
     skipped_too_new = 0
     matched_calendar = 0
     unmatched_calendar = 0
+    reused_existing_notes = 0
+    existing_note_match_logs: list[dict[str, object]] = []
     failed_jobs = 0
     errors: list[dict[str, str]] = []
 
     now_ts = time.time()
+    match_reference_now = _now_utc()
     for audio_file in audio_files:
         audio_key = str(audio_file.resolve())
         audio_family = _recording_family_key(audio_file)
@@ -757,20 +814,40 @@ def _ingest_wav_files_once(
             inferred_start, _ = infer_datetime_from_recording_path(audio_file)
             matched_event: dict[str, object] | None = None
             if match_calendar:
-                matched_event = resolve_event_near_timestamp(
-                    at=inferred_start,
-                    window_minutes=max(window_minutes, 0),
+                matched_event = resolve_event_near_now(
+                    now=match_reference_now,
+                    forward_minutes=max(forward_minutes, 0),
+                    backward_minutes=max(backward_minutes, 0),
                 )
                 if matched_event:
                     matched_calendar += 1
                 else:
                     unmatched_calendar += 1
 
-            note_info = (
-                create_note_from_event(matched_event)
-                if matched_event
-                else create_backfill_note_for_recording(recording_path=audio_file)
-            )
+            existing_note_match: dict[str, object] | None = None
+            if matched_event:
+                existing_note_match = resolve_existing_note_for_event_start(matched_event)
+            if existing_note_match:
+                note_info = {
+                    "meeting_id": str(existing_note_match["meeting_id"]),
+                    "note_path": str(existing_note_match["note_path"]),
+                }
+                reused_existing_notes += 1
+                existing_note_match_logs.append(
+                    {
+                        "recording": str(audio_file),
+                        "meeting_id": str(existing_note_match["meeting_id"]),
+                        "note_path": str(existing_note_match["note_path"]),
+                        "candidate_count": int(existing_note_match.get("candidate_count", 1)),
+                        "tie_break_rule": str(existing_note_match.get("tie_break_rule", "")),
+                    }
+                )
+            else:
+                note_info = (
+                    create_note_from_event(matched_event)
+                    if matched_event
+                    else create_backfill_note_for_recording(recording_path=audio_file)
+                )
             payload = {
                 "meeting_id": note_info["meeting_id"],
                 "note_path": note_info["note_path"],
@@ -800,6 +877,12 @@ def _ingest_wav_files_once(
         "match_calendar": match_calendar,
         "matched_calendar": matched_calendar,
         "unmatched_calendar": unmatched_calendar,
+        "calendar_match_reference": "now",
+        "calendar_forward_minutes": max(forward_minutes, 0),
+        "calendar_backward_minutes": max(backward_minutes, 0),
+        "window_minutes": max(window_minutes, 0),
+        "reused_existing_notes": reused_existing_notes,
+        "existing_note_match_logs": existing_note_match_logs,
         "process_now": process_now,
         "min_age_seconds": min_age_seconds,
         "errors": errors,
@@ -815,6 +898,8 @@ def _run_ingest_watch(
     extensions: list[str],
     match_calendar: bool,
     window_minutes: int,
+    forward_minutes: int,
+    backward_minutes: int,
     process_now: bool,
 ) -> dict[str, object]:
     polls = 0
@@ -827,6 +912,8 @@ def _run_ingest_watch(
         "skipped_too_new": 0,
         "matched_calendar": 0,
         "unmatched_calendar": 0,
+        "reused_existing_notes": 0,
+        "existing_note_match_logs": [],
         "last_poll": {},
     }
     while True:
@@ -835,6 +922,8 @@ def _run_ingest_watch(
             extensions=extensions,
             match_calendar=match_calendar,
             window_minutes=window_minutes,
+            forward_minutes=forward_minutes,
+            backward_minutes=backward_minutes,
             process_now=process_now,
         )
         polls += 1
@@ -846,6 +935,10 @@ def _run_ingest_watch(
         aggregate["skipped_too_new"] += int(poll_result["skipped_too_new"])
         aggregate["matched_calendar"] += int(poll_result["matched_calendar"])
         aggregate["unmatched_calendar"] += int(poll_result["unmatched_calendar"])
+        aggregate["reused_existing_notes"] += int(poll_result.get("reused_existing_notes", 0))
+        logs = poll_result.get("existing_note_match_logs", [])
+        if isinstance(logs, list):
+            aggregate["existing_note_match_logs"].extend(logs)
         aggregate["last_poll"] = poll_result
 
         if once:
@@ -912,6 +1005,8 @@ def _backfill_recordings(
     skipped_existing = 0
     matched_calendar = 0
     unmatched_calendar = 0
+    reused_existing_notes = 0
+    existing_note_match_logs: list[dict[str, object]] = []
     skipped_manual = 0
     errors: list[dict[str, str]] = []
     plans: list[dict[str, object]] = []
@@ -1048,14 +1143,33 @@ def _backfill_recordings(
                 )
                 note_info = preview_note_from_event(simulated_event)
             else:
-                note_info = (
-                    create_note_from_event(matched_event)
-                    if matched_event
-                    else create_backfill_note_for_recording(
-                        recording_path=recording,
-                        title=manual_title,
+                existing_note_match: dict[str, object] | None = None
+                if matched_event:
+                    existing_note_match = resolve_existing_note_for_event_start(matched_event)
+                if existing_note_match:
+                    note_info = {
+                        "meeting_id": str(existing_note_match["meeting_id"]),
+                        "note_path": str(existing_note_match["note_path"]),
+                    }
+                    reused_existing_notes += 1
+                    existing_note_match_logs.append(
+                        {
+                            "recording": str(recording),
+                            "meeting_id": str(existing_note_match["meeting_id"]),
+                            "note_path": str(existing_note_match["note_path"]),
+                            "candidate_count": int(existing_note_match.get("candidate_count", 1)),
+                            "tie_break_rule": str(existing_note_match.get("tie_break_rule", "")),
+                        }
                     )
-                )
+                else:
+                    note_info = (
+                        create_note_from_event(matched_event)
+                        if matched_event
+                        else create_backfill_note_for_recording(
+                            recording_path=recording,
+                            title=manual_title,
+                        )
+                    )
             meeting_id = note_info["meeting_id"]
             transcript = _preferred_transcript_path(meeting_id=meeting_id, cfg=cfg)
             if transcript.exists():
@@ -1136,6 +1250,8 @@ def _backfill_recordings(
         "match_calendar": match_calendar,
         "matched_calendar": matched_calendar,
         "unmatched_calendar": unmatched_calendar,
+        "reused_existing_notes": reused_existing_notes,
+        "existing_note_match_logs": existing_note_match_logs,
         "unmatched_recordings": len(unmatched_recordings),
         "exported_unmatched_manifest": exported_unmatched_manifest,
         "review_calendar": review_calendar,
@@ -1335,6 +1451,8 @@ def main() -> int:
                 extensions=extensions or ["wav", "m4a"],
                 match_calendar=args.match_calendar,
                 window_minutes=args.window_minutes,
+                forward_minutes=args.forward_minutes,
+                backward_minutes=args.backward_minutes,
                 process_now=args.process_now,
             )
         except Exception as exc:

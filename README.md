@@ -39,6 +39,8 @@ Install separately:
   - initialize: `bash scripts/setup_env_profiles.sh`
 - Prefer 1Password secret refs in env file:
   - `MEETINGCTL_ANTHROPIC_API_KEY_OP_REF=op://Private/Anthropic/api_key`
+- For corporate TLS inspection / custom root cert environments:
+  - keep `MEETINGCTL_SUMMARY_USE_SYSTEM_TRUST=1` (default) so Anthropic requests use macOS trust roots.
 - Run commands via secure wrapper:
   - `bash scripts/meetingctl_cli.sh process-queue --json`
 
@@ -57,6 +59,10 @@ Install separately:
 ## Automation Command
 - For Hazel/Keyboard Maestro file-driven automation, run:
   - `bash scripts/run_ingest_once.sh`
+- Calendar-matched ingest will reuse an existing note by local date/start time when available, instead of creating a duplicate meeting note.
+- Live ingest calendar matching is anchored to current time (`now`) with directional limits:
+  - forward max `10m` (`MEETINGCTL_INGEST_FORWARD_WINDOW_MINUTES`)
+  - backward max `15m` (`MEETINGCTL_INGEST_BACKWARD_WINDOW_MINUTES`)
 
 ## Working Agreements
 - TDD: write/adjust tests first for each story.

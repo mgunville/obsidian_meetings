@@ -33,6 +33,8 @@ Optional (already documented in `.env.example`):
 - `MEETINGCTL_ARTIFACTS_ROOT=Meetings/_artifacts` (vault-root-relative path for transcript artifacts; keeps links stable when notes move)
 - `MEETINGCTL_NOTE_TEMPLATE_PATH=~/Notes/notes-vault/System/Templates/icalBuddy/Meeting.md`
 - `MEETINGCTL_MATCH_WINDOW_MINUTES=30`
+- `MEETINGCTL_INGEST_FORWARD_WINDOW_MINUTES=10` (live ingest calendar match max forward from now)
+- `MEETINGCTL_INGEST_BACKWARD_WINDOW_MINUTES=15` (live ingest calendar match max backward from now)
 - `MEETINGCTL_INGEST_MIN_AGE_SECONDS=15`
 - `MEETINGCTL_BACKFILL_EXTENSIONS=wav`
 - `MEETINGCTL_STATE_FILE=~/.local/state/meetingctl/current.json`

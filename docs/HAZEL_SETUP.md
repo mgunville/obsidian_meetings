@@ -50,10 +50,13 @@ bash "$REPO_ROOT/scripts/secure_exec.sh" \
 - It then runs `scripts/run_ingest_once.sh`:
   - loads `.env` and `.venv`
   - runs `ingest-watch --once --match-calendar --json`
+  - when a calendar match exists, attempts to reuse an existing meeting note anywhere in the vault by matching local date + start time
   - drains `process-queue` in batches so minutes/decisions/action items are generated in the same trigger
     - `MEETINGCTL_PROCESS_QUEUE_MAX_JOBS` (default `3` per pass)
     - `MEETINGCTL_PROCESS_QUEUE_DRAIN_PASSES` (default `6` passes)
   - optional (`MEETINGCTL_NORMALIZE_FRONTMATTER=1`): runs `normalize-frontmatter` for new/moved notes
+  - after successful processing, writes an audio completion marker sidecar:
+    - `<audio-file>.done.json` (for example `20260302-0900_Audio.wav.done.json`)
 - Locking via `~/.local/state/meetingctl/automation_ingest.lock` prevents duplicate concurrent runs.
 
 ## Required `.env`
@@ -62,7 +65,9 @@ bash "$REPO_ROOT/scripts/secure_exec.sh" \
 
 ## Optional Tuning (`.env`)
 
-- `MEETINGCTL_MATCH_WINDOW_MINUTES=30`
+- `MEETINGCTL_INGEST_FORWARD_WINDOW_MINUTES=10` (live ingest: max minutes forward from current time)
+- `MEETINGCTL_INGEST_BACKWARD_WINDOW_MINUTES=15` (live ingest: max minutes backward from current time)
+- `MEETINGCTL_MATCH_WINDOW_MINUTES=30` (backfill/manual matching window around inferred recording timestamp)
 - `MEETINGCTL_INGEST_MIN_AGE_SECONDS=15`
 - `MEETINGCTL_BACKFILL_EXTENSIONS=wav,m4a`
 - `MEETINGCTL_INGEST_EXTENSIONS=wav,m4a`
@@ -80,6 +85,10 @@ bash "$REPO_ROOT/scripts/secure_exec.sh" \
 - `MEETINGCTL_USE_1PASSWORD=auto` (default; use `op run` only when env includes `op://` refs)
 - `MEETINGCTL_ENV_PROFILE=dev` (optional explicit profile; default for Hazel ingest in `secure_exec.sh`)
 - `MEETINGCTL_ANTHROPIC_API_KEY_OP_REF=op://Private/Anthropic/api_key` (recommended 1Password ref)
+- `MEETINGCTL_SUMMARY_USE_SYSTEM_TRUST=1` (recommended: use macOS trust roots via `truststore` for Anthropic TLS)
+- `MEETINGCTL_SUMMARY_REQUEST_RETRIES=2` (optional: retries for transient 429/529/connection errors)
+- `MEETINGCTL_SUMMARY_RETRY_BASE_SECONDS=2` (optional: exponential backoff base delay)
+- `MEETINGCTL_AUDIO_DONE_MODE=sidecar` (default: create `<audio>.done.json`; use `none` to disable)
 
 ## Quick Validation
 

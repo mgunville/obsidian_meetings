@@ -181,6 +181,146 @@ def resolve_event_near_timestamp(
     return best[0]
 
 
+def _ingest_match_stage(
+    *,
+    start_delta_minutes: float,
+    forward_minutes: int,
+    backward_minutes: int,
+) -> int | None:
+    # Priority order for live ingest calendar matching:
+    # exact now -> forward(<=5) -> forward(<=10) -> backward(<=5/10/15).
+    if abs(start_delta_minutes) < 0.01:
+        return 0
+
+    forward_limit = float(max(forward_minutes, 0))
+    backward_limit = float(max(backward_minutes, 0))
+
+    if start_delta_minutes > 0:
+        if start_delta_minutes > forward_limit:
+            return None
+        if start_delta_minutes <= min(5.0, forward_limit):
+            return 1
+        if start_delta_minutes <= min(10.0, forward_limit):
+            return 2
+        return None
+
+    backward_distance = abs(start_delta_minutes)
+    if backward_distance > backward_limit:
+        return None
+    if backward_distance <= min(5.0, backward_limit):
+        return 3
+    if backward_distance <= min(10.0, backward_limit):
+        return 4
+    if backward_distance <= min(15.0, backward_limit):
+        return 5
+    return None
+
+
+def resolve_event_candidates_near_now(
+    *,
+    now: datetime,
+    forward_minutes: int,
+    backward_minutes: int,
+    max_candidates: int = 5,
+    eventkit: EventKitBackend | None = None,
+    jxa: JXABackend | None = None,
+    icalbuddy: ICalBuddyBackend | None = None,
+) -> list[dict[str, object]]:
+    eventkit = eventkit or EventKitBackend()
+    jxa = jxa or JXABackend()
+    icalbuddy = icalbuddy or ICalBuddyBackend()
+    forward_limit = max(forward_minutes, 0)
+    backward_limit = max(backward_minutes, 0)
+
+    window_start = now - timedelta(minutes=backward_limit)
+    window_end = now + timedelta(minutes=forward_limit)
+    events, backend, fallback_used = _fetch_events_in_range(
+        eventkit=eventkit,
+        jxa=jxa,
+        icalbuddy=icalbuddy,
+        start=window_start,
+        end=window_end,
+    )
+
+    candidates: list[tuple[int, float, datetime, dict[str, object]]] = []
+    for event in events:
+        title = str(event.get("title", "")).strip().lower()
+        if title.startswith("canceled:"):
+            continue
+        try:
+            start = datetime.fromisoformat(str(event["start"]))
+        except Exception:
+            continue
+
+        delta_minutes = (start - now).total_seconds() / 60.0
+        stage = _ingest_match_stage(
+            start_delta_minutes=delta_minutes,
+            forward_minutes=forward_limit,
+            backward_minutes=backward_limit,
+        )
+        if stage is None:
+            continue
+        candidates.append((stage, abs(delta_minutes), start, event))
+
+    if not candidates:
+        return []
+
+    candidates.sort(key=lambda row: (row[0], row[1], row[2], str(row[3].get("title", ""))))
+    payloads: list[dict[str, object]] = []
+    for stage, distance, _, selected in candidates[: max(max_candidates, 1)]:
+        join_url = _infer_join_url(selected)
+        payloads.append(
+            {
+                "title": selected.get("title"),
+                "start": selected.get("start"),
+                "end": selected.get("end"),
+                "calendar_name": selected.get("calendar_name"),
+                "join_url": join_url,
+                "platform": _infer_platform(join_url),
+                "backend": backend,
+                "fallback_used": fallback_used,
+                "match_stage": stage,
+                "match_distance_minutes": round(distance, 2),
+            }
+        )
+    return payloads
+
+
+def resolve_event_near_now(
+    *,
+    now: datetime,
+    forward_minutes: int,
+    backward_minutes: int,
+    eventkit: EventKitBackend | None = None,
+    jxa: JXABackend | None = None,
+    icalbuddy: ICalBuddyBackend | None = None,
+) -> dict[str, object] | None:
+    candidates = resolve_event_candidates_near_now(
+        now=now,
+        forward_minutes=forward_minutes,
+        backward_minutes=backward_minutes,
+        max_candidates=25,
+        eventkit=eventkit,
+        jxa=jxa,
+        icalbuddy=icalbuddy,
+    )
+    if not candidates:
+        return None
+    best_stage = int(candidates[0].get("match_stage", 999))
+    stage_matches = [candidate for candidate in candidates if int(candidate.get("match_stage", 999)) == best_stage]
+    if not stage_matches:
+        return None
+    best_distance = float(stage_matches[0].get("match_distance_minutes", 0.0))
+    best = [
+        candidate
+        for candidate in stage_matches
+        if abs(float(candidate.get("match_distance_minutes", 0.0)) - best_distance) < 0.01
+    ]
+    if len(best) != 1:
+        return None
+    return best[0]
+
+
 def resolve_event_candidates_near_timestamp(
     *,
     at: datetime,
