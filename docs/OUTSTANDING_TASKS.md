@@ -1,6 +1,6 @@
 # Outstanding Tasks (Canonical)
 
-Last updated: 2026-02-12
+Last updated: 2026-03-03
 
 This is the single source of truth for active work. Other planning/audit docs are historical snapshots.
 
@@ -43,7 +43,7 @@ This is the single source of truth for active work. Other planning/audit docs ar
 
 ## Deferred by request
 
-- [ ] Full end-to-end orchestration on a live meeting:
+- [x] Full end-to-end orchestration on a live meeting:
   - trigger via Hazel file event
   - ingest + queue + transcription + summary + note append
   - verify final note content and section ordering against template
@@ -52,10 +52,20 @@ This is the single source of truth for active work. Other planning/audit docs ar
   - produce `.hazelrules` import package for `run_ingest_once.sh`
   - validate import + trigger behavior without manual rule creation
 - [ ] Optional: add Hazel failure/quarantine rule for unmatched or failed recordings.
-- [ ] Resolve Anthropic API TLS trust issue in this runtime:
+- [x] Resolve Anthropic API TLS trust issue in this runtime:
   - current error: SSL certificate verification failure
   - restore real Claude summary execution in `process-queue`
+  - use `truststore`-backed TLS client for Anthropic requests (`MEETINGCTL_SUMMARY_USE_SYSTEM_TRUST=1`)
 - [ ] Post-backlog metadata normalization sweep (after meeting notes are moved to final folders):
   - run `normalize-frontmatter` across target scopes
   - ensure all target fields exist and are populated by location/context rules
   - review unresolved blanks (`client`, `engagement`, `topic`, `opportunity_id`, `project_id`, `team`, `related_notes`)
+- [x] Hazel pre-create merge behavior (avoid duplicate meeting notes):
+  - when Hazel ingests a new recording, search the vault for an existing meeting `.md` with matching local date + meeting start time.
+  - if found, attach/merge audio + artifacts into that existing note instead of creating a new meeting note.
+  - if multiple candidates match, pick deterministic best match and log tie-break in JSON output.
+  - add tests for:
+    - exact match
+    - nearest-time match within configured tolerance
+    - no match (new note still created)
+    - moved note paths outside `Meetings/`

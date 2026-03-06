@@ -64,6 +64,21 @@ Install separately:
   - forward max `10m` (`MEETINGCTL_INGEST_FORWARD_WINDOW_MINUTES`)
   - backward max `15m` (`MEETINGCTL_INGEST_BACKWARD_WINDOW_MINUTES`)
 
+## Local Diarization Sidecar
+- Use isolated pyannote/whisperx runtime via Docker Compose:
+  - build: `docker compose -f docker-compose.diarization.yml build diarizer`
+  - run: `bash scripts/diarize_sidecar.sh ~/Notes/audio/<file>.wav --meeting-id <meeting_id>`
+- Historical transcript upgrade (recommended, transcript-json-first):
+  - `bash scripts/run_diarization_backfill.sh`
+  - optional bounded run: `bash scripts/run_diarization_backfill.sh --max-files 25`
+- Full guide:
+  - `docs/DIARIZATION_SIDECAR.md`
+- Historical catch-up and minutes comparison/apply:
+  - `./.venv/bin/python scripts/diarization_catchup.py --json`
+  - `bash scripts/secure_exec.sh ./.venv/bin/python scripts/diarization_minutes_refresh.py --max-items 10 --json`
+  - `bash scripts/secure_exec.sh ./.venv/bin/python scripts/diarization_minutes_refresh.py --max-items 10 --apply-diarized --json`
+  - `docs/DIARIZATION_CATCHUP_AGENT.md`
+
 ## Working Agreements
 - TDD: write/adjust tests first for each story.
 - YAGNI: implement only what a story needs.

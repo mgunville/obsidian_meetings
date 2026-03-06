@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import shutil
@@ -142,6 +143,156 @@ class FallbackTranscriptionRunner:
             return self.fallback.transcribe(wav_path=wav_path, transcript_path=transcript_path)
 
 
+class SidecarDiarizationTranscriptionRunner:
+    def __init__(
+        self,
+        *,
+        script_path: str,
+        runner: Callable[..., object] | None = None,
+        min_speakers: int | None = None,
+        max_speakers: int | None = None,
+        require_speaker_labels: bool = True,
+    ) -> None:
+        self.script_path = script_path
+        self.runner = runner or _subprocess_run_captured
+        self.min_speakers = min_speakers
+        self.max_speakers = max_speakers
+        self.require_speaker_labels = require_speaker_labels
+
+    def transcribe(self, *, wav_path: Path, transcript_path: Path) -> Path:
+        if not wav_path.exists():
+            raise TranscriptionError(
+                f"Missing WAV input: {wav_path}. Stop recording before transcription."
+            )
+        transcript_path.parent.mkdir(parents=True, exist_ok=True)
+        return self._run_sidecar(wav_path=wav_path, transcript_path=transcript_path, transcript_json_path=None)
+
+    def diarize_existing_transcript(self, *, wav_path: Path, transcript_path: Path) -> Path:
+        transcript_json_path = transcript_path.with_suffix(".json")
+        if not transcript_json_path.exists():
+            raise TranscriptionError(
+                f"Cannot diarize existing transcript without JSON segments: {transcript_json_path}"
+            )
+        return self._run_sidecar(
+            wav_path=wav_path,
+            transcript_path=transcript_path,
+            transcript_json_path=transcript_json_path,
+        )
+
+    def _build_command(
+        self,
+        *,
+        wav_path: Path,
+        transcript_path: Path,
+        transcript_json_path: Path | None,
+    ) -> list[str]:
+        command = [self.script_path, str(wav_path), "--meeting-id", transcript_path.stem]
+        if transcript_json_path is not None:
+            command.extend(["--transcript-json", str(transcript_json_path)])
+        if self.min_speakers is not None:
+            command.extend(["--min-speakers", str(self.min_speakers)])
+        if self.max_speakers is not None:
+            command.extend(["--max-speakers", str(self.max_speakers)])
+        if not self.require_speaker_labels:
+            command.append("--allow-transcript-without-diarization")
+        return command
+
+    def _run_sidecar(
+        self,
+        *,
+        wav_path: Path,
+        transcript_path: Path,
+        transcript_json_path: Path | None,
+    ) -> Path:
+        command = self._build_command(
+            wav_path=wav_path,
+            transcript_path=transcript_path,
+            transcript_json_path=transcript_json_path,
+        )
+        try:
+            result = self.runner(command, check=True)
+        except subprocess.TimeoutExpired as exc:
+            timeout = _transcription_timeout_seconds()
+            raise TranscriptionError(
+                f"Diarization sidecar timed out after {timeout}s for {wav_path}"
+            ) from exc
+        except subprocess.CalledProcessError as exc:
+            detail = _extract_transcriber_failure_detail(_process_text(exc))
+            raise TranscriptionError(f"Diarization sidecar failed for {wav_path}: {detail}") from exc
+
+        manifest = _extract_sidecar_manifest(_process_text(result))
+        if manifest is None:
+            raise TranscriptionError(
+                f"Diarization sidecar did not return a parseable manifest for {wav_path}"
+            )
+        diarization_succeeded = bool(manifest.get("diarization_succeeded", False))
+        if self.require_speaker_labels and not diarization_succeeded:
+            detail = str(manifest.get("diarization_error", "")).strip() or "unknown diarization failure"
+            raise TranscriptionError(f"Diarization failed for {wav_path}: {detail}")
+
+        sources = {
+            ".txt": _resolve_sidecar_artifact_path(Path(str(manifest.get("transcript_txt", ""))).expanduser()),
+            ".srt": _resolve_sidecar_artifact_path(Path(str(manifest.get("transcript_srt", ""))).expanduser()),
+            ".json": _resolve_sidecar_artifact_path(Path(str(manifest.get("transcript_json", ""))).expanduser()),
+        }
+        for ext, source_path in sources.items():
+            if not source_path.exists():
+                raise TranscriptionError(f"Diarization sidecar missing expected artifact: {source_path}")
+            diarized_target = transcript_path.with_name(f"{transcript_path.stem}.diarized{ext}")
+            diarized_target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source_path, diarized_target)
+
+            active_target = transcript_path if ext == ".txt" else transcript_path.with_suffix(ext)
+            shutil.copyfile(source_path, active_target)
+        return transcript_path
+
+
+class PreferDiarizedTranscriptionRunner:
+    def __init__(
+        self,
+        *,
+        diarized: TranscriptionRunner,
+        fallback: TranscriptionRunner,
+        fallback_on_error: bool,
+        keep_baseline: bool,
+    ) -> None:
+        self.diarized = diarized
+        self.fallback = fallback
+        self.fallback_on_error = fallback_on_error
+        self.keep_baseline = keep_baseline
+
+    def transcribe(self, *, wav_path: Path, transcript_path: Path) -> Path:
+        try:
+            output = self.diarized.transcribe(wav_path=wav_path, transcript_path=transcript_path)
+            if self.keep_baseline:
+                self._write_baseline(wav_path=wav_path, transcript_path=transcript_path)
+            return output
+        except Exception:
+            if not self.fallback_on_error:
+                raise
+            output = self.fallback.transcribe(wav_path=wav_path, transcript_path=transcript_path)
+            self._best_effort_diarize_existing_transcript(wav_path=wav_path, transcript_path=transcript_path)
+            return output
+
+    def _write_baseline(self, *, wav_path: Path, transcript_path: Path) -> None:
+        baseline_path = transcript_path.with_name(f"{transcript_path.stem}.basic.txt")
+        if baseline_path.exists():
+            return
+        try:
+            self.fallback.transcribe(wav_path=wav_path, transcript_path=baseline_path)
+        except Exception:
+            # Baseline capture is best-effort and should not block the primary diarized path.
+            return
+
+    def _best_effort_diarize_existing_transcript(self, *, wav_path: Path, transcript_path: Path) -> None:
+        if not isinstance(self.diarized, SidecarDiarizationTranscriptionRunner):
+            return
+        try:
+            self.diarized.diarize_existing_transcript(wav_path=wav_path, transcript_path=transcript_path)
+        except Exception:
+            return
+
+
 def _resolve_cli_binary(name: str) -> str:
     direct = shutil.which(name)
     if direct:
@@ -159,6 +310,33 @@ def _resolve_cli_binary(name: str) -> str:
 def create_transcription_runner() -> TranscriptionRunner:
     backend = os.environ.get("MEETINGCTL_TRANSCRIPTION_BACKEND", "whisper").strip().lower()
     model = os.environ.get("MEETINGCTL_TRANSCRIPTION_MODEL", "base").strip() or "base"
+    allow_fallback = os.environ.get("MEETINGCTL_TRANSCRIPTION_FALLBACK_TO_WHISPER", "1").strip().lower()
+    fallback_enabled = allow_fallback not in {"0", "false", "no"}
+
+    if backend in {"sidecar", "diarized", "diarization-sidecar"}:
+        fallback = WhisperTranscriptionRunner(binary=_resolve_cli_binary("whisper"), model=model)
+        script_override = os.environ.get("MEETINGCTL_DIARIZATION_SIDECAR_SCRIPT", "").strip()
+        script_path = script_override or str(_default_sidecar_script_path())
+        min_speakers = _env_optional_int("MEETINGCTL_DIARIZATION_MIN_SPEAKERS")
+        max_speakers = _env_optional_int("MEETINGCTL_DIARIZATION_MAX_SPEAKERS")
+        require_speaker_labels = _truthy_env(
+            "MEETINGCTL_DIARIZATION_REQUIRE_SPEAKER_LABELS",
+            default=True,
+        )
+        keep_baseline = _truthy_env("MEETINGCTL_DIARIZATION_KEEP_BASELINE", default=True)
+        diarized = SidecarDiarizationTranscriptionRunner(
+            script_path=script_path,
+            min_speakers=min_speakers,
+            max_speakers=max_speakers,
+            require_speaker_labels=require_speaker_labels,
+        )
+        return PreferDiarizedTranscriptionRunner(
+            diarized=diarized,
+            fallback=fallback,
+            fallback_on_error=fallback_enabled,
+            keep_baseline=keep_baseline,
+        )
+
     if backend == "whisperx":
         model_ref = _resolve_whisperx_model_ref(default_model=model)
         compute_type = os.environ.get("MEETINGCTL_WHISPERX_COMPUTE_TYPE", "").strip() or None
@@ -169,8 +347,7 @@ def create_transcription_runner() -> TranscriptionRunner:
             compute_type=compute_type,
             vad_method=vad_method,
         )
-        allow_fallback = os.environ.get("MEETINGCTL_TRANSCRIPTION_FALLBACK_TO_WHISPER", "1").strip().lower()
-        if allow_fallback not in {"0", "false", "no"}:
+        if fallback_enabled:
             return FallbackTranscriptionRunner(
                 primary=primary,
                 fallback=WhisperTranscriptionRunner(binary=_resolve_cli_binary("whisper"), model=model),
@@ -189,6 +366,59 @@ def _resolve_whisperx_model_ref(*, default_model: str) -> str:
     if repo_local.exists():
         return str(repo_local)
     return default_model
+
+
+def _default_sidecar_script_path() -> Path:
+    return (Path(__file__).resolve().parents[2] / "scripts" / "diarize_sidecar.sh").resolve()
+
+
+def _resolve_sidecar_artifact_path(path: Path) -> Path:
+    if path.exists():
+        return path
+    repo_root = Path(__file__).resolve().parents[2]
+    raw = str(path)
+    if raw.startswith("/shared/"):
+        candidate = repo_root / "shared_data" / raw.removeprefix("/shared/")
+        if candidate.exists():
+            return candidate
+    if raw.startswith("/workspace/"):
+        candidate = repo_root / raw.removeprefix("/workspace/")
+        if candidate.exists():
+            return candidate
+    return path
+
+
+def _env_optional_int(name: str) -> int | None:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
+def _truthy_env(name: str, *, default: bool) -> bool:
+    raw = os.environ.get(name, "").strip().lower()
+    if not raw:
+        return default
+    return raw not in {"0", "false", "no", "off"}
+
+
+def _extract_sidecar_manifest(log_text: str) -> dict[str, object] | None:
+    for line in reversed(log_text.splitlines()):
+        candidate = line.strip()
+        if not candidate:
+            continue
+        try:
+            payload = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        if "transcript_txt" in payload and "transcript_json" in payload:
+            return payload
+    return None
 
 
 def _promote_transcript_artifacts(

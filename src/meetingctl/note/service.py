@@ -81,6 +81,136 @@ def _existing_note_for_meeting_id(meeting_id: str) -> Path | None:
     return matches[0] if matches else None
 
 
+def _vault_path() -> Path:
+    return Path(os.environ.get("VAULT_PATH", ".")).expanduser().resolve()
+
+
+def _default_meetings_folder_parts() -> tuple[str, ...]:
+    folder = Path(os.environ.get("DEFAULT_MEETINGS_FOLDER", "meetings"))
+    return tuple(part.lower() for part in folder.parts if part)
+
+
+def _is_under_default_meetings_folder(note_path: Path) -> bool:
+    default_parts = _default_meetings_folder_parts()
+    if not default_parts:
+        return False
+    try:
+        rel_parts = tuple(part.lower() for part in note_path.resolve().relative_to(_vault_path()).parts)
+    except Exception:
+        return False
+    return rel_parts[: len(default_parts)] == default_parts
+
+
+def _event_local_start_key(start_iso: str) -> tuple[str, str]:
+    dt = datetime.fromisoformat(start_iso)
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(_local_tz())
+    return dt.strftime("%Y-%m-%d"), dt.strftime("%H%M")
+
+
+def _meeting_id_from_note_path(note_path: Path) -> str | None:
+    filename_match = re.search(r"\s-\s*(m-[a-f0-9]{10})(?:\s+\(\d+\))?\.md$", note_path.name, re.IGNORECASE)
+    if filename_match:
+        return filename_match.group(1)
+    try:
+        for line in note_path.read_text(encoding="utf-8", errors="replace").splitlines()[:80]:
+            frontmatter_match = re.match(r'^meeting_id:\s*"?([^"\n]+)"?\s*$', line.strip())
+            if not frontmatter_match:
+                continue
+            candidate = frontmatter_match.group(1).strip()
+            if candidate.startswith("m-"):
+                return candidate
+    except OSError:
+        return None
+    return None
+
+
+def _note_start_key(note_path: Path) -> tuple[str, str] | None:
+    filename_match = re.match(r"^(\d{4}-\d{2}-\d{2})[ _-](\d{4})\b", note_path.name)
+    if filename_match:
+        return filename_match.group(1), filename_match.group(2)
+
+    try:
+        lines = note_path.read_text(encoding="utf-8", errors="replace").splitlines()[:120]
+    except OSError:
+        return None
+
+    for line in lines:
+        start_match = re.match(r'^start:\s*"?([^"\n]+)"?\s*$', line.strip())
+        if not start_match:
+            continue
+        raw_start = start_match.group(1).strip()
+        try:
+            return _event_local_start_key(raw_start)
+        except ValueError:
+            return None
+    return None
+
+
+def _has_managed_meeting_regions(note_path: Path) -> bool:
+    try:
+        text = note_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    required_markers = (
+        "<!-- MINUTES_START -->",
+        "<!-- MINUTES_END -->",
+        "<!-- DECISIONS_START -->",
+        "<!-- DECISIONS_END -->",
+        "<!-- ACTION_ITEMS_START -->",
+        "<!-- ACTION_ITEMS_END -->",
+        "<!-- REFERENCES_START -->",
+        "<!-- REFERENCES_END -->",
+    )
+    return all(marker in text for marker in required_markers)
+
+
+def resolve_existing_note_for_event_start(event: dict[str, object]) -> dict[str, object] | None:
+    start_iso = str(event.get("start", "")).strip()
+    title = str(event.get("title", "Untitled Meeting"))
+    if not start_iso:
+        return None
+    try:
+        target_key = _event_local_start_key(start_iso)
+    except ValueError:
+        return None
+
+    candidates: list[Path] = []
+    vault_root = _vault_path()
+    for candidate in vault_root.rglob("*.md"):
+        parts_lower = {part.lower() for part in candidate.parts}
+        if ".obsidian" in parts_lower or "_artifacts" in parts_lower:
+            continue
+        if _note_start_key(candidate) != target_key:
+            continue
+        if not _has_managed_meeting_regions(candidate):
+            continue
+        candidates.append(candidate.resolve())
+
+    if not candidates:
+        return None
+
+    def _sort_key(path: Path) -> tuple[int, str]:
+        default_folder_rank = 1 if _is_under_default_meetings_folder(path) else 0
+        try:
+            rel = path.relative_to(vault_root).as_posix()
+        except ValueError:
+            rel = str(path)
+        return (default_folder_rank, rel.lower())
+
+    selected = sorted(candidates, key=_sort_key)[0]
+    meeting_id = _meeting_id_from_note_path(selected) or generate_meeting_id(
+        title=title,
+        start_iso=start_iso,
+    )
+    return {
+        "meeting_id": meeting_id,
+        "note_path": str(selected),
+        "candidate_count": len(candidates),
+        "tie_break_rule": "prefer_non_default_meetings_folder_then_path",
+    }
+
+
 def _to_local_naive(iso_value: str) -> datetime:
     dt = datetime.fromisoformat(iso_value)
     if dt.tzinfo is not None:

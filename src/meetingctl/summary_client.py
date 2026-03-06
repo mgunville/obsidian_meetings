@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 import os
 import re
+import ssl
 import subprocess
+import time
 
 import anthropic
 
@@ -34,6 +36,21 @@ def _summary_model_candidates() -> list[str]:
 def _is_model_not_found_error(exc: Exception) -> bool:
     text = str(exc).lower()
     return "not_found_error" in text and "model:" in text
+
+
+def _is_transient_summary_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    transient_markers = (
+        "overloaded_error",
+        "rate_limit_error",
+        "error code: 529",
+        "error code: 429",
+        "connection error",
+        "timeout",
+        "timed out",
+        "temporarily unavailable",
+    )
+    return any(marker in text for marker in transient_markers)
 
 
 def _extract_candidate_json(raw_text: str) -> str:
@@ -272,6 +289,51 @@ def _summary_timeout_seconds() -> float:
         return 120.0
 
 
+def _summary_request_retries() -> int:
+    raw = os.environ.get("MEETINGCTL_SUMMARY_REQUEST_RETRIES", "").strip()
+    if not raw:
+        return 2
+    try:
+        return max(min(int(raw), 10), 0)
+    except ValueError:
+        return 2
+
+
+def _summary_retry_base_seconds() -> float:
+    raw = os.environ.get("MEETINGCTL_SUMMARY_RETRY_BASE_SECONDS", "").strip()
+    if not raw:
+        return 2.0
+    try:
+        return max(float(raw), 0.1)
+    except ValueError:
+        return 2.0
+
+
+def _truthy_env(name: str, default: str = "0") -> bool:
+    raw = os.environ.get(name, default).strip().lower()
+    return raw not in {"", "0", "false", "no", "off"}
+
+
+def _summary_http_client() -> object | None:
+    ca_bundle = os.environ.get("MEETINGCTL_SSL_CA_BUNDLE", "").strip()
+    if not ca_bundle:
+        ca_bundle = os.environ.get("SSL_CERT_FILE", "").strip()
+    if ca_bundle:
+        return anthropic.DefaultHttpxClient(verify=ca_bundle)
+
+    if _truthy_env("MEETINGCTL_SUMMARY_USE_SYSTEM_TRUST", "1"):
+        try:
+            import truststore  # type: ignore[import-not-found]
+
+            context = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            return anthropic.DefaultHttpxClient(verify=context)
+        except Exception:
+            # Optional dependency; fall back to default httpx client behavior.
+            return None
+
+    return None
+
+
 def _read_onepassword_secret(ref: str) -> str:
     try:
         completed = subprocess.run(
@@ -301,8 +363,11 @@ def _resolve_api_key(api_key: str) -> str:
         return _read_onepassword_secret(direct)
     if direct:
         return direct
-    if ref_from_env:
+    if ref_from_env.startswith("op://"):
         return _read_onepassword_secret(ref_from_env)
+    if ref_from_env:
+        # secure_exec/op-run may already resolve this env var to a plaintext key.
+        return ref_from_env
     return ""
 
 
@@ -315,24 +380,34 @@ def _request_text_with_model_fallback(
     last_exc: Exception | None = None
     response = None
     for model in _summary_model_candidates():
-        try:
-            response = client.messages.create(
-                model=model,
-                max_tokens=max_tokens,
-                temperature=0,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": prompt,
-                    }
-                ],
-            )
+        retries = _summary_request_retries()
+        attempt = 0
+        while attempt <= retries:
+            try:
+                response = client.messages.create(
+                    model=model,
+                    max_tokens=max_tokens,
+                    temperature=0,
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": prompt,
+                        }
+                    ],
+                )
+                break
+            except Exception as exc:
+                if _is_model_not_found_error(exc):
+                    last_exc = exc
+                    break
+                if _is_transient_summary_error(exc) and attempt < retries:
+                    delay = _summary_retry_base_seconds() * (2**attempt)
+                    time.sleep(delay)
+                    attempt += 1
+                    continue
+                raise
+        if response is not None:
             break
-        except Exception as exc:
-            if _is_model_not_found_error(exc):
-                last_exc = exc
-                continue
-            raise
 
     if response is None:
         candidate_list = ", ".join(_summary_model_candidates())
@@ -408,10 +483,14 @@ def generate_summary(transcript: str, *, api_key: str) -> dict[str, object]:
     if not resolved_api_key:
         raise ValueError("API key is required")
 
-    client = anthropic.Anthropic(
-        api_key=resolved_api_key,
-        timeout=_summary_timeout_seconds(),
-    )
+    client_kwargs: dict[str, object] = {
+        "api_key": resolved_api_key,
+        "timeout": _summary_timeout_seconds(),
+    }
+    http_client = _summary_http_client()
+    if http_client is not None:
+        client_kwargs["http_client"] = http_client
+    client = anthropic.Anthropic(**client_kwargs)
 
     prompt = f"""You are a meeting assistant. Given the following meeting transcript, generate a structured summary.
 

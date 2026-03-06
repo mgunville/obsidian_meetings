@@ -28,6 +28,9 @@ meetingctl_load_env "$ROOT_DIR"
 
 export PYTHONPATH=src
 
+# Lightweight periodic reminder for offline model refresh/check cadence.
+bash "$ROOT_DIR/scripts/diarization_check_reminder.sh" || true
+
 # Single-pass ingest for file-triggered automation (Hazel/KM).
 python -m meetingctl.cli ingest-watch --once --match-calendar --json
 

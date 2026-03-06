@@ -33,6 +33,7 @@ Use secret references rather than plaintext keys:
 VAULT_PATH=~/Notes/notes-vault
 RECORDINGS_PATH=~/Notes/audio
 MEETINGCTL_ANTHROPIC_API_KEY_OP_REF=op://Private/Anthropic/api_key
+HUGGINGFACE_TOKEN=op://Private/HuggingFace/token
 MEETINGCTL_SUMMARY_MODEL=claude-3-5-sonnet-latest
 ```
 
@@ -42,10 +43,21 @@ Runtime behavior:
   - `auto` (default): use `op run` only when env file contains `op://` refs
   - `1`: always use `op run`
   - `0`: skip `op run`
+- Optional auth-friction reduction for local development:
+  - `MEETINGCTL_OP_CACHE_TTL_SECONDS=<seconds>` caches resolved env values locally (for example `21600` for 6h)
+  - `MEETINGCTL_OP_CACHE_DIR=~/.local/state/meetingctl/op-cache` controls cache location
+  - `0` or unset disables caching
 - `meetingctl` resolves `MEETINGCTL_ANTHROPIC_API_KEY_OP_REF` via `op read` at summary time.
+- Diarization sidecar can receive `HUGGINGFACE_TOKEN` via `op run` env expansion.
+- Alternative for lower-friction local development: set `MEETINGCTL_HF_TOKEN_FILE=~/.config/meetingctl/hf_token`
+  with `chmod 600 ~/.config/meetingctl/hf_token`; wrapper exports it for sidecar/model-sync runs.
 - `MEETINGCTL_ENV_PROFILE` controls default env file selection:
   - `dev` -> `~/.config/meetingctl/env.dev`
   - `secure` -> `~/.config/meetingctl/env.secure` (fallback `~/.config/meetingctl/env`)
+
+Cache security note:
+- Cache files are plaintext env values stored with `0600` permissions in a user-only directory.
+- Use short TTLs on shared/high-risk machines and set `MEETINGCTL_OP_CACHE_TTL_SECONDS=0` when higher assurance is required.
 
 Initialize profile files:
 
@@ -74,6 +86,12 @@ MEETINGCTL_ENV_PROFILE=dev bash scripts/meetingctl_cli.sh doctor --json
 bash scripts/secure_exec.sh <command> [args...]
 ```
 
+- Diarization sidecar wrapper (also uses `secure_exec.sh`):
+
+```bash
+bash scripts/diarize_sidecar.sh ~/Notes/audio/<file>.wav --meeting-id <meeting_id>
+```
+
 ## Hazel / Automation
 
 Use secure wrapper in Hazel shell action:
@@ -84,7 +102,8 @@ bash "$REPO_ROOT/scripts/secure_exec.sh" \
   bash "$REPO_ROOT/scripts/hazel_ingest_file.sh" "$1" >> "$HOME/.local/state/meetingctl/hazel.log" 2>&1
 ```
 
-`secure_exec.sh` auto-selects `dev` profile for Hazel ingest scripts unless overridden.
+`secure_exec.sh` auto-selects `secure` profile for Hazel ingest scripts unless overridden.
+Use `MEETINGCTL_HAZEL_ENV_PROFILE=dev` only for explicit non-secret/local testing.
 
 ## Failure Isolation and Monitoring
 

@@ -57,4 +57,5 @@ echo
 echo "Usage:"
 echo "  Manual secure CLI: MEETINGCTL_ENV_PROFILE=secure bash \"$ROOT_DIR/scripts/meetingctl_cli.sh\" doctor --json"
 echo "  Manual dev CLI:    MEETINGCTL_ENV_PROFILE=dev bash \"$ROOT_DIR/scripts/meetingctl_cli.sh\" doctor --json"
-echo "  Hazel defaults to dev profile via scripts/secure_exec.sh."
+echo "  Hazel defaults to secure profile via scripts/secure_exec.sh."
+echo "  Override only if needed: MEETINGCTL_HAZEL_ENV_PROFILE=dev"

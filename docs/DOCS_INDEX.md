@@ -1,6 +1,6 @@
 # Documentation Index (Canonical)
 
-Last updated: 2026-02-26
+Last updated: 2026-03-03
 
 Use this file as the top-level map for project documentation.
 
@@ -11,6 +11,8 @@ Use this file as the top-level map for project documentation.
 - `docs/OPERATIONS_RUNBOOK.md`: operational commands for batch processing and maintenance.
 - `docs/VAULT_METADATA_NORMALIZATION_RUNBOOK.md`: planned transcript-links-only and frontmatter normalization approach.
 - `docs/HAZEL_SETUP.md`: file-triggered ingest automation setup.
+- `docs/DIARIZATION_SIDECAR.md`: local pyannote-in-container diarization workflow and compose operations.
+- `docs/DIARIZATION_CATCHUP_AGENT.md`: cross-machine catch-up runbook for diarized transcript generation + minutes refresh.
 - `docs/SECURITY_SECRETS.md`: secret handling, 1Password integration, and runtime hardening.
 - `docs/RELEASE_AUDIT_2026-02-09.md`: latest release readiness audit baseline.
 - `docs/TDD_AND_DOD.md`: engineering quality gates and definition of done.

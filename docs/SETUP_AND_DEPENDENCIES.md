@@ -126,6 +126,43 @@ Permission probe:
   - `MEETINGCTL_PROCESSING_SUMMARY_JSON='{"minutes":"...","decisions":[],"action_items":[]}'`
   - `MEETINGCTL_PROCESSING_CONVERT_DRY_RUN=1`
 
+## 6b) Local Diarization Sidecar (Pyannote Isolated Runtime)
+
+- Purpose:
+  - run diarization in a dedicated container when host pyannote/torch compatibility is unstable.
+- Files:
+  - `docker-compose.diarization.yml`
+  - `docker/diarization/Dockerfile`
+  - `scripts/diarize_sidecar.sh`
+- Build:
+  - `docker compose -f docker-compose.diarization.yml build diarizer`
+- Run single file:
+  - `bash scripts/diarize_sidecar.sh ~/Notes/audio/<file>.wav --meeting-id <meeting_id>`
+- Sidecar data root (repo-local, stable across machines):
+  - `shared_data/diarization/`
+- Token env required inside sidecar for diarization:
+  - `PYANNOTE_AUTH_TOKEN` or `HF_TOKEN` or `HUGGINGFACE_TOKEN`
+  - access must include:
+    - `pyannote/speaker-diarization-3.1`
+    - `pyannote/speaker-diarization`
+    - `pyannote/segmentation-3.0`
+    - `pyannote/segmentation`
+  - on managed networks:
+    - `MEETINGCTL_DIARIZATION_INSECURE_SSL=1`
+    - `HF_HUB_DISABLE_XET=1`
+- To run diarized-first in the main processing pipeline:
+  - `MEETINGCTL_TRANSCRIPTION_BACKEND=sidecar`
+  - `MEETINGCTL_TRANSCRIPTION_FALLBACK_TO_WHISPER=1`
+  - `MEETINGCTL_DIARIZATION_KEEP_BASELINE=1`
+  - `MEETINGCTL_DIARIZATION_REQUIRE_SPEAKER_LABELS=1`
+- Catch-up scripts:
+  - `bash scripts/run_diarization_backfill.sh`
+  - `./.venv/bin/python scripts/diarization_catchup.py --json`
+  - `bash scripts/secure_exec.sh ./.venv/bin/python scripts/diarization_minutes_refresh.py --max-items 10 --json`
+  - `bash scripts/secure_exec.sh ./.venv/bin/python scripts/diarization_minutes_refresh.py --max-items 10 --apply-diarized --json`
+- Full details:
+  - `docs/DIARIZATION_SIDECAR.md`
+
 ## 7) Backfill (Prior Recordings)
 - Wrapper (recommended):
   - preview: `bash scripts/backfill_historical.sh`

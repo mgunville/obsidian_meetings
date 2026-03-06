@@ -697,9 +697,34 @@ def _assert_transcription_backend_ready() -> None:
     backend = os.environ.get("MEETINGCTL_TRANSCRIPTION_BACKEND", "whisper").strip().lower()
     allow_fallback = os.environ.get("MEETINGCTL_TRANSCRIPTION_FALLBACK_TO_WHISPER", "1").strip().lower()
     fallback_enabled = allow_fallback not in {"0", "false", "no"}
+    has_whisper = _binary_available("whisper")
+    has_whisperx = _binary_available("whisperx")
+
+    if backend in {"sidecar", "diarized", "diarization-sidecar"}:
+        script_override = os.environ.get("MEETINGCTL_DIARIZATION_SIDECAR_SCRIPT", "").strip()
+        if script_override:
+            script_path = Path(script_override).expanduser()
+        else:
+            script_path = Path(__file__).resolve().parents[2] / "scripts" / "diarize_sidecar.sh"
+        has_sidecar_script = script_path.exists() and os.access(script_path, os.X_OK)
+        has_docker = shutil.which("docker") is not None
+        if has_sidecar_script and has_docker:
+            return
+        if fallback_enabled and has_whisper:
+            return
+        if not has_sidecar_script:
+            raise RuntimeError(
+                f"Transcription backend unavailable: missing sidecar launcher `{script_path}`."
+            )
+        if not has_docker:
+            raise RuntimeError(
+                "Transcription backend unavailable: `docker` is required for sidecar diarization."
+            )
+        raise RuntimeError(
+            "Transcription backend unavailable: sidecar diarization failed readiness checks."
+        )
+
     if backend == "whisperx":
-        has_whisperx = _binary_available("whisperx")
-        has_whisper = _binary_available("whisper")
         if has_whisperx:
             return
         if fallback_enabled and has_whisper:
@@ -711,7 +736,7 @@ def _assert_transcription_backend_ready() -> None:
         raise RuntimeError(
             "Transcription backend unavailable: install `whisperx` in this runtime."
         )
-    if not _binary_available("whisper"):
+    if not has_whisper:
         raise RuntimeError(
             "Transcription backend unavailable: install `whisper` in this runtime."
         )

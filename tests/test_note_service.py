@@ -7,6 +7,7 @@ from meetingctl.note.service import (
     create_note_from_event,
     infer_datetime_from_recording_path,
     preview_note_from_event,
+    resolve_existing_note_for_event_start,
 )
 
 
@@ -152,3 +153,81 @@ def test_preview_note_from_event_uses_local_time_in_filename(monkeypatch, tmp_pa
         meeting_id="m-test123",
     )
     assert "2026-02-10 1000 - Consulting SP PC call - m-test123.md" in preview["note_path"]
+
+
+def _write_minimal_managed_note(path: Path, meeting_id: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "\n".join(
+            [
+                "---",
+                f'meeting_id: "{meeting_id}"',
+                "---",
+                "",
+                "## Minutes",
+                "<!-- MINUTES_START -->",
+                "> _Pending_",
+                "<!-- MINUTES_END -->",
+                "## Decisions",
+                "<!-- DECISIONS_START -->",
+                "> _Pending_",
+                "<!-- DECISIONS_END -->",
+                "## Action items",
+                "<!-- ACTION_ITEMS_START -->",
+                "> _Pending_",
+                "<!-- ACTION_ITEMS_END -->",
+                "## References",
+                "<!-- REFERENCES_START -->",
+                "> _Pending_",
+                "<!-- REFERENCES_END -->",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_resolve_existing_note_for_event_start_reuses_note_anywhere_in_vault(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("VAULT_PATH", str(tmp_path))
+    monkeypatch.setenv("DEFAULT_MEETINGS_FOLDER", "Meetings")
+    existing = tmp_path / "_Work" / "AHEAD" / "Clients" / "Acme" / "2026-03-03 0900 - Acme Sync - m-abcd1234ef.md"
+    _write_minimal_managed_note(existing, "m-abcd1234ef")
+
+    match = resolve_existing_note_for_event_start(
+        {
+            "title": "Acme Sync",
+            "start": "2026-03-03T15:00:00+00:00",
+            "end": "2026-03-03T15:30:00+00:00",
+        }
+    )
+
+    assert match is not None
+    assert match["meeting_id"] == "m-abcd1234ef"
+    assert Path(str(match["note_path"])).resolve() == existing.resolve()
+    assert int(match["candidate_count"]) == 1
+
+
+def test_resolve_existing_note_for_event_start_prefers_non_default_folder_on_tie(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("VAULT_PATH", str(tmp_path))
+    monkeypatch.setenv("DEFAULT_MEETINGS_FOLDER", "Meetings")
+    meetings_note = tmp_path / "Meetings" / "2026-03-03 0900 - Auto - m-1111111111.md"
+    work_note = tmp_path / "_Work" / "AHEAD" / "Team" / "2026-03-03 0900 - Manual - m-2222222222.md"
+    _write_minimal_managed_note(meetings_note, "m-1111111111")
+    _write_minimal_managed_note(work_note, "m-2222222222")
+
+    match = resolve_existing_note_for_event_start(
+        {
+            "title": "Weekly Sync",
+            "start": "2026-03-03T15:00:00+00:00",
+            "end": "2026-03-03T15:30:00+00:00",
+        }
+    )
+
+    assert match is not None
+    assert match["meeting_id"] == "m-2222222222"
+    assert Path(str(match["note_path"])).resolve() == work_note.resolve()
+    assert int(match["candidate_count"]) == 2

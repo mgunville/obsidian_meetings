@@ -1,0 +1,6 @@
+jobs/*
+!jobs/.gitkeep
+cache/*
+!cache/.gitkeep
+manifests/*.json
+!manifests/.gitkeep

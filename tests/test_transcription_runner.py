@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
+import shutil
 import subprocess
+import uuid
 
 import pytest
 
 from meetingctl.transcription import (
     FallbackTranscriptionRunner,
+    PreferDiarizedTranscriptionRunner,
+    SidecarDiarizationTranscriptionRunner,
     TranscriptionError,
     WhisperTranscriptionRunner,
     WhisperXTranscriptionRunner,
@@ -176,3 +181,236 @@ def test_create_transcription_runner_uses_whisper_fallback_by_default(monkeypatc
     assert isinstance(runner, FallbackTranscriptionRunner)
     assert isinstance(runner.primary, WhisperXTranscriptionRunner)
     assert isinstance(runner.fallback, WhisperTranscriptionRunner)
+
+
+def test_sidecar_runner_promotes_diarized_outputs(tmp_path: Path) -> None:
+    wav = tmp_path / "audio.wav"
+    wav.write_text("dummy")
+    transcript_path = tmp_path / "out" / "m-abc123.txt"
+    job_dir = tmp_path / "job"
+    job_dir.mkdir(parents=True, exist_ok=True)
+    side_txt = job_dir / "transcript_diarized.txt"
+    side_srt = job_dir / "transcript_diarized.srt"
+    side_json = job_dir / "transcript_diarized.json"
+    side_txt.write_text("[00:00:00-00:00:01] SPEAKER_00: hello")
+    side_srt.write_text("1\n00:00:00,000 --> 00:00:01,000\nSPEAKER_00: hello\n")
+    side_json.write_text('{"segments":[{"speaker":"SPEAKER_00","text":"hello"}]}')
+
+    manifest = {
+        "transcript_txt": str(side_txt),
+        "transcript_srt": str(side_srt),
+        "transcript_json": str(side_json),
+        "diarization_succeeded": True,
+    }
+
+    def _runner(args, check=True):
+        return subprocess.CompletedProcess(
+            args=args,
+            returncode=0,
+            stdout=json.dumps(manifest),
+            stderr="",
+        )
+
+    runner = SidecarDiarizationTranscriptionRunner(
+        script_path="/tmp/diarize_sidecar.sh",
+        runner=_runner,
+    )
+    output = runner.transcribe(wav_path=wav, transcript_path=transcript_path)
+
+    assert output == transcript_path
+    assert transcript_path.exists()
+    assert transcript_path.read_text() == side_txt.read_text()
+    assert transcript_path.with_suffix(".srt").exists()
+    assert transcript_path.with_suffix(".json").exists()
+    assert transcript_path.with_name("m-abc123.diarized.txt").exists()
+    assert transcript_path.with_name("m-abc123.diarized.srt").exists()
+    assert transcript_path.with_name("m-abc123.diarized.json").exists()
+
+
+def test_sidecar_runner_can_diarize_existing_transcript_json(tmp_path: Path) -> None:
+    wav = tmp_path / "audio.wav"
+    wav.write_text("dummy")
+    transcript_path = tmp_path / "out" / "m-abc123.txt"
+    transcript_path.parent.mkdir(parents=True, exist_ok=True)
+    transcript_path.with_suffix(".json").write_text('{"segments":[{"start":0.0,"end":1.0,"text":"hi"}]}')
+    job_dir = tmp_path / "job"
+    job_dir.mkdir(parents=True, exist_ok=True)
+    side_txt = job_dir / "transcript_diarized.txt"
+    side_srt = job_dir / "transcript_diarized.srt"
+    side_json = job_dir / "transcript_diarized.json"
+    side_txt.write_text("[00:00:00-00:00:01] SPEAKER_00: hi")
+    side_srt.write_text("1\n00:00:00,000 --> 00:00:01,000\nSPEAKER_00: hi\n")
+    side_json.write_text('{"segments":[{"speaker":"SPEAKER_00","text":"hi"}]}')
+
+    manifest = {
+        "transcript_txt": str(side_txt),
+        "transcript_srt": str(side_srt),
+        "transcript_json": str(side_json),
+        "diarization_succeeded": True,
+    }
+
+    calls: list[list[str]] = []
+
+    def _runner(args, check=True):
+        calls.append(args)
+        return subprocess.CompletedProcess(
+            args=args,
+            returncode=0,
+            stdout=json.dumps(manifest),
+            stderr="",
+        )
+
+    runner = SidecarDiarizationTranscriptionRunner(
+        script_path="/tmp/diarize_sidecar.sh",
+        runner=_runner,
+    )
+    output = runner.diarize_existing_transcript(wav_path=wav, transcript_path=transcript_path)
+
+    assert output == transcript_path
+    assert calls
+    assert "--transcript-json" in calls[0]
+    assert str(transcript_path.with_suffix(".json")) in calls[0]
+    assert transcript_path.read_text() == side_txt.read_text()
+
+
+def test_sidecar_runner_resolves_container_shared_manifest_paths(tmp_path: Path) -> None:
+    wav = tmp_path / "audio.wav"
+    wav.write_text("dummy")
+    transcript_path = tmp_path / "out" / "m-abc123.txt"
+    repo_root = Path(__file__).resolve().parents[1]
+    unique_dir = repo_root / "shared_data" / "diarization" / "jobs" / f"test-path-map-{uuid.uuid4().hex[:8]}"
+    try:
+        unique_dir.mkdir(parents=True, exist_ok=True)
+        side_txt = unique_dir / "transcript_diarized.txt"
+        side_srt = unique_dir / "transcript_diarized.srt"
+        side_json = unique_dir / "transcript_diarized.json"
+        side_txt.write_text("[00:00:00-00:00:01] SPEAKER_00: hello")
+        side_srt.write_text("1\n00:00:00,000 --> 00:00:01,000\nSPEAKER_00: hello\n")
+        side_json.write_text('{"segments":[{"speaker":"SPEAKER_00","text":"hello"}]}')
+
+        manifest = {
+            "transcript_txt": f"/shared/diarization/jobs/{unique_dir.name}/transcript_diarized.txt",
+            "transcript_srt": f"/shared/diarization/jobs/{unique_dir.name}/transcript_diarized.srt",
+            "transcript_json": f"/shared/diarization/jobs/{unique_dir.name}/transcript_diarized.json",
+            "diarization_succeeded": True,
+        }
+
+        def _runner(args, check=True):
+            return subprocess.CompletedProcess(
+                args=args,
+                returncode=0,
+                stdout=json.dumps(manifest),
+                stderr="",
+            )
+
+        runner = SidecarDiarizationTranscriptionRunner(
+            script_path="/tmp/diarize_sidecar.sh",
+            runner=_runner,
+        )
+        output = runner.transcribe(wav_path=wav, transcript_path=transcript_path)
+
+        assert output == transcript_path
+        assert transcript_path.exists()
+        assert transcript_path.read_text() == side_txt.read_text()
+        assert transcript_path.with_name("m-abc123.diarized.txt").exists()
+    finally:
+        shutil.rmtree(unique_dir, ignore_errors=True)
+
+
+def test_prefer_diarized_runner_falls_back_to_whisper(tmp_path: Path) -> None:
+    wav = tmp_path / "audio.wav"
+    wav.write_text("dummy")
+    transcript_path = tmp_path / "out" / "m-abc123.txt"
+
+    class _FailRunner:
+        def transcribe(self, *, wav_path: Path, transcript_path: Path) -> Path:
+            raise TranscriptionError("diarization failed")
+
+    class _OkRunner:
+        def transcribe(self, *, wav_path: Path, transcript_path: Path) -> Path:
+            transcript_path.parent.mkdir(parents=True, exist_ok=True)
+            transcript_path.write_text("fallback transcript")
+            transcript_path.with_suffix(".srt").write_text("1\n")
+            transcript_path.with_suffix(".json").write_text("{}")
+            return transcript_path
+
+    runner = PreferDiarizedTranscriptionRunner(
+        diarized=_FailRunner(),
+        fallback=_OkRunner(),
+        fallback_on_error=True,
+        keep_baseline=True,
+    )
+    output = runner.transcribe(wav_path=wav, transcript_path=transcript_path)
+    assert output == transcript_path
+    assert transcript_path.read_text() == "fallback transcript"
+
+
+def test_prefer_diarized_runner_attempts_post_fallback_diarization(tmp_path: Path) -> None:
+    wav = tmp_path / "audio.wav"
+    wav.write_text("dummy")
+    transcript_path = tmp_path / "out" / "m-abc123.txt"
+    transcript_path.parent.mkdir(parents=True, exist_ok=True)
+    job_dir = tmp_path / "job"
+    job_dir.mkdir(parents=True, exist_ok=True)
+    side_txt = job_dir / "transcript_diarized.txt"
+    side_srt = job_dir / "transcript_diarized.srt"
+    side_json = job_dir / "transcript_diarized.json"
+    side_txt.write_text("[00:00:00-00:00:01] SPEAKER_00: diarized")
+    side_srt.write_text("1\n00:00:00,000 --> 00:00:01,000\nSPEAKER_00: diarized\n")
+    side_json.write_text('{"segments":[{"speaker":"SPEAKER_00","text":"diarized"}]}')
+    manifest = {
+        "transcript_txt": str(side_txt),
+        "transcript_srt": str(side_srt),
+        "transcript_json": str(side_json),
+        "diarization_succeeded": True,
+    }
+
+    sidecar_calls: list[list[str]] = []
+
+    def _sidecar_runner(args, check=True):
+        sidecar_calls.append(args)
+        if "--transcript-json" not in args:
+            raise subprocess.CalledProcessError(1, args, output="", stderr="sidecar ASR failed")
+        return subprocess.CompletedProcess(
+            args=args,
+            returncode=0,
+            stdout=json.dumps(manifest),
+            stderr="",
+        )
+
+    class _FallbackRunner:
+        def transcribe(self, *, wav_path: Path, transcript_path: Path) -> Path:
+            transcript_path.parent.mkdir(parents=True, exist_ok=True)
+            transcript_path.write_text("fallback transcript")
+            transcript_path.with_suffix(".srt").write_text("1\n")
+            transcript_path.with_suffix(".json").write_text('{"segments":[{"start":0.0,"end":1.0,"text":"hi"}]}')
+            return transcript_path
+
+    sidecar = SidecarDiarizationTranscriptionRunner(
+        script_path="/tmp/diarize_sidecar.sh",
+        runner=_sidecar_runner,
+    )
+    runner = PreferDiarizedTranscriptionRunner(
+        diarized=sidecar,
+        fallback=_FallbackRunner(),
+        fallback_on_error=True,
+        keep_baseline=False,
+    )
+    output = runner.transcribe(wav_path=wav, transcript_path=transcript_path)
+
+    assert output == transcript_path
+    assert len(sidecar_calls) == 2
+    assert "--transcript-json" not in sidecar_calls[0]
+    assert "--transcript-json" in sidecar_calls[1]
+    assert transcript_path.read_text() == side_txt.read_text()
+
+
+def test_create_transcription_runner_selects_sidecar_backend(monkeypatch) -> None:
+    monkeypatch.setenv("MEETINGCTL_TRANSCRIPTION_BACKEND", "sidecar")
+    monkeypatch.setenv("MEETINGCTL_TRANSCRIPTION_FALLBACK_TO_WHISPER", "1")
+    monkeypatch.setenv("MEETINGCTL_DIARIZATION_KEEP_BASELINE", "1")
+    monkeypatch.setenv("MEETINGCTL_DIARIZATION_SIDECAR_SCRIPT", "/tmp/diarize_sidecar.sh")
+
+    runner = create_transcription_runner()
+
+    assert isinstance(runner, PreferDiarizedTranscriptionRunner)

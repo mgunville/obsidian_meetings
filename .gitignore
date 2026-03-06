@@ -34,3 +34,7 @@ token*.json
 *.p12
 *.key
 # END CREDENTIAL HARDENING (managed)
+
+# Local sidecar/model artifacts
+shared_data/ct2model_*/
+shared_data/diarization/manifests/minutes_compare_*.md

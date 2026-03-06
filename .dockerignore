@@ -1,0 +1,17 @@
+.git
+.venv
+.pytest_cache
+.ruff_cache
+__pycache__
+*.pyc
+.DS_Store
+
+Notes
+recordings
+meetings
+logs
+
+shared_data/diarization/cache
+shared_data/diarization/jobs
+
+config/models

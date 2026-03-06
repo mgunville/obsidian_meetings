@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sys
+from types import ModuleType
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -146,6 +148,53 @@ def test_generate_summary_uses_api_key_from_param(mock_anthropic_class: MagicMoc
     assert kwargs["api_key"] == "my-secret-key"
 
 
+@patch("meetingctl.summary_client.anthropic.DefaultHttpxClient")
+@patch("meetingctl.summary_client.anthropic.Anthropic")
+def test_generate_summary_uses_truststore_http_client_when_available(
+    mock_anthropic_class: MagicMock,
+    mock_default_httpx_client: MagicMock,
+    monkeypatch,
+) -> None:
+    mock_client = MagicMock()
+    mock_anthropic_class.return_value = mock_client
+    mock_default_httpx_client.return_value = MagicMock()
+    mock_response = MagicMock()
+    mock_response.content = [SimpleNamespace(text='{"minutes":"ok","decisions":[],"action_items":[]}')]
+    mock_client.messages.create.return_value = mock_response
+
+    truststore_module = ModuleType("truststore")
+    truststore_module.SSLContext = MagicMock(return_value=MagicMock())
+    monkeypatch.setitem(sys.modules, "truststore", truststore_module)
+    monkeypatch.setenv("MEETINGCTL_SUMMARY_USE_SYSTEM_TRUST", "1")
+
+    generate_summary("Test transcript", api_key="test-key")
+
+    kwargs = mock_anthropic_class.call_args.kwargs
+    assert "http_client" in kwargs
+    assert kwargs["api_key"] == "test-key"
+
+
+@patch("meetingctl.summary_client.anthropic.DefaultHttpxClient")
+@patch("meetingctl.summary_client.anthropic.Anthropic")
+def test_generate_summary_skips_truststore_when_disabled(
+    mock_anthropic_class: MagicMock,
+    mock_default_httpx_client: MagicMock,
+    monkeypatch,
+) -> None:
+    mock_client = MagicMock()
+    mock_anthropic_class.return_value = mock_client
+    mock_response = MagicMock()
+    mock_response.content = [SimpleNamespace(text='{"minutes":"ok","decisions":[],"action_items":[]}')]
+    mock_client.messages.create.return_value = mock_response
+
+    monkeypatch.setenv("MEETINGCTL_SUMMARY_USE_SYSTEM_TRUST", "0")
+    generate_summary("Test transcript", api_key="test-key")
+
+    kwargs = mock_anthropic_class.call_args.kwargs
+    assert "http_client" not in kwargs
+    assert not mock_default_httpx_client.called
+
+
 @patch("meetingctl.summary_client.subprocess.run")
 @patch("meetingctl.summary_client.anthropic.Anthropic")
 def test_generate_summary_resolves_api_key_from_op_ref_param(
@@ -189,6 +238,27 @@ def test_generate_summary_resolves_api_key_from_env_op_ref(
     mock_anthropic_class.assert_called_once()
     kwargs = mock_anthropic_class.call_args.kwargs
     assert kwargs["api_key"] == "resolved-from-env"
+
+
+@patch("meetingctl.summary_client.subprocess.run")
+@patch("meetingctl.summary_client.anthropic.Anthropic")
+def test_generate_summary_uses_resolved_env_value_without_op_read(
+    mock_anthropic_class: MagicMock,
+    mock_subprocess_run: MagicMock,
+    monkeypatch,
+) -> None:
+    mock_client = MagicMock()
+    mock_anthropic_class.return_value = mock_client
+    mock_response = MagicMock()
+    mock_response.content = [SimpleNamespace(text='{"minutes":"ok","decisions":[],"action_items":[]}')]
+    mock_client.messages.create.return_value = mock_response
+    monkeypatch.setenv("MEETINGCTL_ANTHROPIC_API_KEY_OP_REF", "already-resolved-key")
+
+    generate_summary("Test", api_key="")
+
+    mock_subprocess_run.assert_not_called()
+    kwargs = mock_anthropic_class.call_args.kwargs
+    assert kwargs["api_key"] == "already-resolved-key"
 
 
 def test_generate_summary_requires_api_key() -> None:
@@ -262,6 +332,50 @@ def test_generate_summary_errors_when_all_models_not_found(
 
     with pytest.raises(RuntimeError, match="No configured summary model was available"):
         generate_summary("Test transcript", api_key="test-key")
+
+
+@patch("meetingctl.summary_client.time.sleep")
+@patch("meetingctl.summary_client.anthropic.Anthropic")
+def test_generate_summary_retries_transient_overloaded_error(
+    mock_anthropic_class: MagicMock,
+    mock_sleep: MagicMock,
+) -> None:
+    mock_client = MagicMock()
+    mock_anthropic_class.return_value = mock_client
+
+    first_exc = RuntimeError(
+        "Error code: 529 - {'type':'error','error':{'type':'overloaded_error','message':'Overloaded'}}"
+    )
+    second_response = MagicMock()
+    second_response.content = [SimpleNamespace(text='{"minutes":"ok","decisions":[],"action_items":[]}')]
+    mock_client.messages.create.side_effect = [first_exc, second_response]
+
+    result = generate_summary("Test transcript", api_key="test-key")
+    assert result["minutes"] == "ok"
+    assert mock_client.messages.create.call_count == 2
+    assert mock_sleep.called
+
+
+@patch("meetingctl.summary_client.time.sleep")
+@patch("meetingctl.summary_client.anthropic.Anthropic")
+def test_generate_summary_raises_after_transient_retries_exhausted(
+    mock_anthropic_class: MagicMock,
+    mock_sleep: MagicMock,
+    monkeypatch,
+) -> None:
+    mock_client = MagicMock()
+    mock_anthropic_class.return_value = mock_client
+    mock_client.messages.create.side_effect = RuntimeError(
+        "Error code: 529 - {'type':'error','error':{'type':'overloaded_error','message':'Overloaded'}}"
+    )
+    monkeypatch.setenv("MEETINGCTL_SUMMARY_REQUEST_RETRIES", "1")
+
+    with pytest.raises(RuntimeError, match="529"):
+        generate_summary("Test transcript", api_key="test-key")
+
+    # initial attempt + one retry
+    assert mock_client.messages.create.call_count == 2
+    assert mock_sleep.called
 
 
 @patch("meetingctl.summary_client.anthropic.Anthropic")

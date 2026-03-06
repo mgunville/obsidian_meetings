@@ -136,6 +136,35 @@ This is repeatable and intended for transcript upgrades.
 - `moov atom not found`:
   - corrupted/incomplete audio file; exclude from manifest.
 
+## 8b) Sidecar Diarization Ops
+
+- Build/update diarization image:
+
+```bash
+docker compose -f docker-compose.diarization.yml build diarizer
+```
+
+- Run diarization for one audio file:
+
+```bash
+bash scripts/diarize_sidecar.sh ~/Notes/audio/<file>.wav --meeting-id <meeting_id>
+```
+
+- Validate compose expansion before runs:
+
+```bash
+docker compose -f docker-compose.diarization.yml config
+```
+
+- Sidecar output location:
+  - `shared_data/diarization/jobs/<job_id>/`
+- Historical catch-up (write `m-*.diarized.*` in artifacts):
+  - `./.venv/bin/python scripts/diarization_catchup.py --json`
+- Minutes compare (no note changes):
+  - `bash scripts/secure_exec.sh ./.venv/bin/python scripts/diarization_minutes_refresh.py --max-items 10 --json`
+- Minutes apply from diarized transcript:
+  - `bash scripts/secure_exec.sh ./.venv/bin/python scripts/diarization_minutes_refresh.py --max-items 10 --apply-diarized --json`
+
 ## 9) Automation Setup (Hazel + Keyboard Maestro)
 
 ### Hazel
