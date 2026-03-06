@@ -31,7 +31,7 @@ The Meeting Automation system provides one-keystroke UX for:
 
 1. **Install meetingctl**
    ```bash
-   REPO_ROOT="${MEETINGCTL_REPO:-$HOME/Documents/Dev/obsidian_meetings}"
+   REPO_ROOT="${MEETINGCTL_REPO:-$HOME/Dev/obsidian_meetings}"
    cd "$REPO_ROOT"
    bash install.sh
    source .venv/bin/activate
@@ -147,7 +147,7 @@ The Meeting Automation system provides one-keystroke UX for:
 
 2. **Verify meetingctl is installed**
    ```bash
-   REPO_ROOT="${MEETINGCTL_REPO:-$HOME/Documents/Dev/obsidian_meetings}"
+   REPO_ROOT="${MEETINGCTL_REPO:-$HOME/Dev/obsidian_meetings}"
    cd "$REPO_ROOT"
    PYTHONPATH=src ./.venv/bin/python -m meetingctl.cli --help
    ```
@@ -161,7 +161,7 @@ The Meeting Automation system provides one-keystroke UX for:
 
 2. **Run doctor command**
    ```bash
-   REPO_ROOT="${MEETINGCTL_REPO:-$HOME/Documents/Dev/obsidian_meetings}"
+   REPO_ROOT="${MEETINGCTL_REPO:-$HOME/Dev/obsidian_meetings}"
    cd "$REPO_ROOT"
    bash scripts/meetingctl_cli.sh doctor --json
    ```

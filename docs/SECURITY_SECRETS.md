@@ -97,7 +97,7 @@ bash scripts/diarize_sidecar.sh ~/Notes/audio/<file>.wav --meeting-id <meeting_i
 Use secure wrapper in Hazel shell action:
 
 ```bash
-REPO_ROOT="${MEETINGCTL_REPO:-$HOME/Documents/Dev/obsidian_meetings}"
+REPO_ROOT="${MEETINGCTL_REPO:-$HOME/Dev/obsidian_meetings}"
 bash "$REPO_ROOT/scripts/secure_exec.sh" \
   bash "$REPO_ROOT/scripts/hazel_ingest_file.sh" "$1" >> "$HOME/.local/state/meetingctl/hazel.log" 2>&1
 ```

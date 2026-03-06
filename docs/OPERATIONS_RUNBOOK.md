@@ -172,7 +172,7 @@ docker compose -f docker-compose.diarization.yml config
 Use `docs/HAZEL_SETUP.md` as the source of truth. Both monitored folders should run:
 
 ```bash
-REPO_ROOT="${MEETINGCTL_REPO:-$HOME/Documents/Dev/obsidian_meetings}"
+REPO_ROOT="${MEETINGCTL_REPO:-$HOME/Dev/obsidian_meetings}"
 bash "$REPO_ROOT/scripts/secure_exec.sh" \
   bash "$REPO_ROOT/scripts/hazel_ingest_file.sh" "$1" >> "$HOME/.local/state/meetingctl/hazel.log" 2>&1
 ```
@@ -180,7 +180,7 @@ bash "$REPO_ROOT/scripts/secure_exec.sh" \
 Recommended post-process metadata hygiene step:
 
 ```bash
-REPO_ROOT="${MEETINGCTL_REPO:-$HOME/Documents/Dev/obsidian_meetings}"
+REPO_ROOT="${MEETINGCTL_REPO:-$HOME/Dev/obsidian_meetings}"
 cd "$REPO_ROOT"
 bash scripts/meetingctl_cli.sh normalize-frontmatter --scope _Work --json
 ```
@@ -190,7 +190,7 @@ bash scripts/meetingctl_cli.sh normalize-frontmatter --scope _Work --json
 1. Import macro bundle:
    - `config/km/Meeting-Automation-Macros.kmmacros`
 2. Ensure macro shell actions use repo-local runtime:
-   - `REPO_ROOT="${MEETINGCTL_REPO:-$HOME/Documents/Dev/obsidian_meetings}" && cd "$REPO_ROOT"`
+   - `REPO_ROOT="${MEETINGCTL_REPO:-$HOME/Dev/obsidian_meetings}" && cd "$REPO_ROOT"`
    - `bash scripts/meetingctl_cli.sh ...`
 3. Validate macro command path from terminal first:
 

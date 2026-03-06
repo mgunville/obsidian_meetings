@@ -15,7 +15,7 @@ Use this runbook on any machine that has:
 ## 0) Preflight
 
 ```bash
-cd /Users/michael.gunville/Library/CloudStorage/OneDrive-AHEADInc(Production)/Documents/Dev/obsidian_meetings
+cd /Users/michael.gunville/Dev/obsidian_meetings
 bash scripts/meetingctl_cli.sh doctor --json
 ```
 

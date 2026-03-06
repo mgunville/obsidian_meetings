@@ -1,8 +1,27 @@
 # Outstanding Tasks (Canonical)
 
-Last updated: 2026-03-03
+Last updated: 2026-03-06
 
 This is the single source of truth for active work. Other planning/audit docs are historical snapshots.
+
+## Current session memory (2026-03-06)
+
+- Canonical repo location moved to:
+  - `/Users/michael.gunville/Dev/obsidian_meetings`
+- Compatibility symlink currently in place:
+  - `/Users/michael.gunville/Documents/Dev/obsidian_meetings -> /Users/michael.gunville/Dev/obsidian_meetings`
+- Local env profiles rewired to new repo root:
+  - `~/.config/meetingctl/env`
+  - `~/.config/meetingctl/env.secure`
+  - `~/.config/meetingctl/env.dev`
+- 1Password resolved env cache was cleared after path migration:
+  - `~/.local/state/meetingctl/op-cache/resolved-*.env|.meta`
+- Single-file end-to-end validation completed from new root:
+  - input: `/Users/michael.gunville/Notes/audio/20260306-0902_Audio.wav`
+  - result: `processed_jobs=1`, `failed_jobs=0`
+  - meeting id: `m-822f7a7fbc`
+  - note updated under `Meetings/` and artifacts written to `Meetings/_artifacts/m-822f7a7fbc/`
+  - sidecar path required fallback to baseline whisper, then transcript-json diarization pass completed and produced `*.diarized.*`
 
 ## Resolved in code/tests
 
@@ -52,6 +71,10 @@ This is the single source of truth for active work. Other planning/audit docs ar
   - produce `.hazelrules` import package for `run_ingest_once.sh`
   - validate import + trigger behavior without manual rule creation
 - [ ] Optional: add Hazel failure/quarantine rule for unmatched or failed recordings.
+- [ ] Finalize automation path migration and remove compatibility symlink:
+  - update Hazel/KM/other launchers to use `REPO_ROOT=/Users/michael.gunville/Dev/obsidian_meetings`
+  - verify no active references to old OneDrive repo path remain
+  - remove `/Users/michael.gunville/Documents/Dev/obsidian_meetings` symlink once validated
 - [x] Resolve Anthropic API TLS trust issue in this runtime:
   - current error: SSL certificate verification failure
   - restore real Claude summary execution in `process-queue`

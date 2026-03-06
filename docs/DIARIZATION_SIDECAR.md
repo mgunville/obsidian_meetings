@@ -37,14 +37,14 @@ This project now includes a containerized diarization path that is isolated from
 ## Build
 
 ```bash
-cd /Users/michael.gunville/Library/CloudStorage/OneDrive-AHEADInc(Production)/Documents/Dev/obsidian_meetings
+cd /Users/michael.gunville/Dev/obsidian_meetings
 docker compose -f docker-compose.diarization.yml build diarizer
 ```
 
 ## Run (single file)
 
 ```bash
-cd /Users/michael.gunville/Library/CloudStorage/OneDrive-AHEADInc(Production)/Documents/Dev/obsidian_meetings
+cd /Users/michael.gunville/Dev/obsidian_meetings
 bash scripts/diarize_sidecar.sh ~/Notes/audio/20260303-0959_Audio.wav --meeting-id m-4d393affc5
 ```
 
