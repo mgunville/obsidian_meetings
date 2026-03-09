@@ -68,6 +68,8 @@ Install separately:
 - Use isolated pyannote/whisperx runtime via Docker Compose:
   - build: `docker compose -f docker-compose.diarization.yml build diarizer`
   - run: `bash scripts/diarize_sidecar.sh ~/Notes/audio/<file>.wav --meeting-id <meeting_id>`
+- No Hugging Face MCP server is required.
+- New-machine requirement is a Hugging Face token with accepted access to the gated pyannote repos, plus Docker Desktop running locally.
 - Historical transcript upgrade (recommended, transcript-json-first):
   - `bash scripts/run_diarization_backfill.sh`
   - optional bounded run: `bash scripts/run_diarization_backfill.sh --max-files 25`

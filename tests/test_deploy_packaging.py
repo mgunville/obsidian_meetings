@@ -81,3 +81,7 @@ def test_build_deploy_bundle_writes_expected_artifacts(tmp_path: Path) -> None:
     assert not (bundle_dir / "config" / "models" / "whisperx").exists()
     assert (bundle_dir / "docs" / "HAZEL_SETUP.md").exists()
     assert (bundle_dir / "deploy" / "manifest.json").exists()
+    deploy_readme = (bundle_dir / "deploy" / "DEPLOY.md").read_text(encoding="utf-8")
+    assert "MEETINGCTL_REPO" in deploy_readme
+    assert "RECORDINGS_PATH=~/Notes/audio" in deploy_readme
+    assert "no Hugging Face MCP server is needed" in deploy_readme

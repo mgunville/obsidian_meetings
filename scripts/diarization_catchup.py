@@ -12,6 +12,11 @@ import subprocess
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
+_AUDIO_TIMESTAMP_PATTERNS = (
+    re.compile(r"(?P<stamp>\d{8}-\d{4})"),
+    re.compile(r"Recording\s+(?P<stamp>\d{14})"),
+)
+_NOTE_TIME_FALLBACK_TOLERANCE_SECONDS = 30 * 60
 
 
 def _now_stamp() -> str:
@@ -52,14 +57,27 @@ def _find_meeting_id_from_done_marker(audio_path: Path) -> str:
     return meeting_id
 
 
-def _build_note_audio_index(vault_path: Path) -> dict[str, str]:
+def _parse_note_start(value: str) -> datetime | None:
+    text = value.strip().strip('"')
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def _build_note_lookup(vault_path: Path) -> tuple[dict[str, str], list[dict[str, Any]]]:
     index: dict[str, str] = {}
+    notes: list[dict[str, Any]] = []
     meeting_id_pattern = re.compile(r'^meeting_id:\s*"?([^"\n]+)"?\s*$')
+    start_pattern = re.compile(r'^start:\s*"?([^"\n]+)"?\s*$')
     audio_line_pattern = re.compile(r"^-\s+audio:\s+(.+)$")
     for note in vault_path.rglob("*.md"):
         if ".obsidian" in note.parts or "_artifacts" in note.parts:
             continue
         meeting_id = ""
+        start = None
         audio_path = ""
         try:
             for line in note.read_text(encoding="utf-8", errors="replace").splitlines()[:250]:
@@ -67,20 +85,67 @@ def _build_note_audio_index(vault_path: Path) -> dict[str, str]:
                     match = meeting_id_pattern.match(line.strip())
                     if match:
                         meeting_id = match.group(1).strip()
+                if start is None:
+                    start_match = start_pattern.match(line.strip())
+                    if start_match:
+                        start = _parse_note_start(start_match.group(1))
                 audio_match = audio_line_pattern.match(line.strip())
                 if audio_match:
                     audio_path = audio_match.group(1).strip()
-                if meeting_id and audio_path:
+                if meeting_id and start is not None and audio_path:
                     break
         except OSError:
             continue
+        if meeting_id and start is not None:
+            notes.append(
+                {
+                    "meeting_id": meeting_id,
+                    "start": start,
+                    "note_path": str(note.resolve()),
+                }
+            )
         if not meeting_id or not audio_path or audio_path.startswith("[["):
             continue
         resolved = Path(audio_path).expanduser()
         if not resolved.is_absolute():
             continue
         index[str(resolved.resolve())] = meeting_id
-    return index
+    return index, notes
+
+
+def _infer_recording_start(audio_path: Path) -> datetime | None:
+    name = audio_path.name
+    for pattern in _AUDIO_TIMESTAMP_PATTERNS:
+        match = pattern.search(name)
+        if not match:
+            continue
+        stamp = match.group("stamp")
+        try:
+            if len(stamp) == 13:
+                return datetime.strptime(stamp, "%Y%m%d-%H%M")
+            if len(stamp) == 14:
+                return datetime.strptime(stamp, "%Y%m%d%H%M%S")
+        except ValueError:
+            return None
+    return None
+
+
+def _find_meeting_id_by_note_start(audio_path: Path, notes: list[dict[str, Any]]) -> str:
+    inferred_start = _infer_recording_start(audio_path)
+    if inferred_start is None:
+        return ""
+    candidates: list[tuple[float, str]] = []
+    for note in notes:
+        note_start = note.get("start")
+        if not isinstance(note_start, datetime):
+            continue
+        note_local = note_start.replace(tzinfo=None)
+        delta_seconds = abs((note_local - inferred_start).total_seconds())
+        if delta_seconds <= _NOTE_TIME_FALLBACK_TOLERANCE_SECONDS:
+            candidates.append((delta_seconds, str(note.get("meeting_id", "")).strip()))
+    if len(candidates) != 1:
+        return ""
+    return candidates[0][1]
 
 
 def _extract_manifest_from_output(text: str) -> dict[str, Any] | None:
@@ -95,6 +160,21 @@ def _extract_manifest_from_output(text: str) -> dict[str, Any] | None:
         if isinstance(payload, dict) and "transcript_txt" in payload:
             return payload
     return None
+
+
+def _resolve_sidecar_output_path(raw_path: str) -> Path:
+    candidate = Path(str(raw_path).strip()).expanduser()
+    if not str(candidate):
+        return candidate
+    if candidate.exists():
+        return candidate.resolve()
+    parts = candidate.parts
+    if parts[:3] == ("/", "shared", "diarization"):
+        mapped = ROOT / "shared_data" / "diarization"
+        if len(parts) > 3:
+            mapped = mapped.joinpath(*parts[3:])
+        return mapped.resolve()
+    return candidate.resolve()
 
 
 def _artifact_dir_for_meeting(vault_path: Path, meeting_id: str) -> Path:
@@ -149,6 +229,30 @@ def _resolve_files(recordings_root: Path, extensions: list[str], file_list: str)
     return _collapse_recording_variants(files)
 
 
+def _audio_duration_seconds(audio_path: Path) -> float | None:
+    completed = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            str(audio_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode != 0:
+        return None
+    try:
+        return float(completed.stdout.strip())
+    except ValueError:
+        return None
+
+
 def run(args: argparse.Namespace) -> dict[str, Any]:
     recordings_root = Path(args.recordings_root).expanduser().resolve()
     vault_path = Path(args.vault_path).expanduser().resolve()
@@ -162,7 +266,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     if args.max_files > 0:
         files = files[: args.max_files]
 
-    note_audio_index = _build_note_audio_index(vault_path)
+    note_audio_index, notes_by_start = _build_note_lookup(vault_path)
     results: list[dict[str, Any]] = []
     failed = 0
     skipped = 0
@@ -173,6 +277,24 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         meeting_id = _find_meeting_id_from_done_marker(audio_path)
         if not meeting_id:
             meeting_id = note_audio_index.get(str(audio_path.resolve()), "")
+        if not meeting_id:
+            meeting_id = _find_meeting_id_by_note_start(audio_path, notes_by_start)
+        duration_seconds = _audio_duration_seconds(audio_path)
+        if args.min_duration_seconds > 0 and duration_seconds is not None and duration_seconds < args.min_duration_seconds:
+            item = {
+                "audio_path": str(audio_path),
+                "meeting_id": meeting_id,
+                "audio_duration_seconds": duration_seconds,
+                "command": [],
+                "ok": False,
+                "skipped": True,
+                "copied_to_artifacts": False,
+                "replaced_active": False,
+                "error": f"recording shorter than minimum duration ({duration_seconds:.3f}s < {args.min_duration_seconds}s)",
+            }
+            skipped += 1
+            results.append(item)
+            continue
 
         cmd = ["bash", str((ROOT / "scripts" / "diarize_sidecar.sh").resolve()), str(audio_path)]
         if meeting_id:
@@ -204,6 +326,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         item: dict[str, Any] = {
             "audio_path": str(audio_path),
             "meeting_id": meeting_id,
+            "audio_duration_seconds": duration_seconds,
             "transcript_json_used": str(transcript_json) if transcript_json is not None else "",
             "command": cmd,
             "ok": False,
@@ -232,9 +355,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 
         item["ok"] = True
         item["manifest"] = manifest
-        transcript_txt = Path(str(manifest.get("transcript_txt", ""))).expanduser().resolve()
-        transcript_srt = Path(str(manifest.get("transcript_srt", ""))).expanduser().resolve()
-        transcript_json = Path(str(manifest.get("transcript_json", ""))).expanduser().resolve()
+        transcript_txt = _resolve_sidecar_output_path(str(manifest.get("transcript_txt", "")))
+        transcript_srt = _resolve_sidecar_output_path(str(manifest.get("transcript_srt", "")))
+        transcript_json = _resolve_sidecar_output_path(str(manifest.get("transcript_json", "")))
 
         if args.apply_to_artifacts and meeting_id:
             artifact_dir = _artifact_dir_for_meeting(vault_path, meeting_id)
@@ -302,6 +425,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--extensions", default="wav,m4a")
     parser.add_argument("--max-files", type=int, default=0)
     parser.add_argument("--file-list", default="")
+    parser.add_argument("--min-duration-seconds", type=float, default=60.0)
     parser.add_argument("--apply-to-artifacts", action="store_true", default=True)
     parser.add_argument("--no-apply-to-artifacts", action="store_false", dest="apply_to_artifacts")
     parser.add_argument("--replace-active", action="store_true")

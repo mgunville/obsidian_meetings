@@ -40,7 +40,7 @@ Legacy fallback:
 
 Minimum required:
 - `VAULT_PATH=~/Notes/notes-vault/`
-- `RECORDINGS_PATH=~/Notes/recordings`
+- `RECORDINGS_PATH=~/Notes/audio`
 
 Optional (already documented in `.env.example`):
 - `DEFAULT_MEETINGS_FOLDER=Meetings`
@@ -116,6 +116,26 @@ Permission probe:
 6. Real-machine smoke:
 - `SMOKE_REAL_MACHINE=1 bash scripts/smoke-test.sh`
 
+## 5b) Destination-Machine Critical Checklist
+
+Before expecting the packaged workflow to run cleanly on another Mac, confirm all of these:
+
+- Repo location:
+  - preferred path is `~/Dev/obsidian_meetings`
+  - if you extract elsewhere, set `MEETINGCTL_REPO=/absolute/path/to/obsidian_meetings` so Hazel and Keyboard Maestro resolve the correct repo root
+- Runtime env file:
+  - create `~/.config/meetingctl/env` or `~/.config/meetingctl/env.secure`
+  - if you use a different file, export `MEETINGCTL_DOTENV_PATH=/absolute/path/to/env`
+- 1Password-backed secrets:
+  - install 1Password CLI (`op`) on the destination Mac
+  - sign in before using `scripts/meetingctl_cli.sh`, Hazel, or the diarization sidecar
+- Docker:
+  - Docker Desktop must be installed and running for diarization/backfill commands
+  - validate with `docker info`
+- ffmpeg/ffprobe:
+  - install with `brew install ffmpeg`
+  - validate with `which ffmpeg` and `which ffprobe`
+
 ## 6) Transcription Backend Bootstrap
 - Install CLI/runtime dependencies with `bash install.sh`.
 - Ensure a transcription backend is available on PATH:
@@ -154,6 +174,9 @@ Permission probe:
   - `bash scripts/diarize_sidecar.sh ~/Notes/audio/<file>.wav --meeting-id <meeting_id>`
 - Sidecar data root (repo-local, stable across machines):
   - `shared_data/diarization/`
+- Hugging Face requirement:
+  - no Hugging Face MCP server is used or required by this project
+  - the runtime requirement is a Hugging Face account token with access to the gated pyannote models
 - Token env required inside sidecar for diarization:
   - `PYANNOTE_AUTH_TOKEN` or `HF_TOKEN` or `HUGGINGFACE_TOKEN`
   - access must include:
@@ -161,9 +184,24 @@ Permission probe:
     - `pyannote/speaker-diarization`
     - `pyannote/segmentation-3.0`
     - `pyannote/segmentation`
+  - on a new machine/account, accept the gated model terms in a browser before the first sidecar run:
+    - [https://huggingface.co/pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1)
+    - [https://huggingface.co/pyannote/speaker-diarization](https://huggingface.co/pyannote/speaker-diarization)
+    - [https://huggingface.co/pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0)
+    - [https://huggingface.co/pyannote/segmentation](https://huggingface.co/pyannote/segmentation)
+  - if you are not using 1Password refs, the lowest-friction host setup is:
+    - `mkdir -p ~/.config/meetingctl`
+    - `chmod 700 ~/.config/meetingctl`
+    - store the token in `~/.config/meetingctl/hf_token`
+    - `chmod 600 ~/.config/meetingctl/hf_token`
+    - set `MEETINGCTL_HF_TOKEN_FILE=~/.config/meetingctl/hf_token`
   - on managed networks:
     - `MEETINGCTL_DIARIZATION_INSECURE_SSL=1`
     - `HF_HUB_DISABLE_XET=1`
+- First-machine validation sequence:
+  - `docker compose -f docker-compose.diarization.yml build diarizer`
+  - `docker compose -f docker-compose.diarization.yml config`
+  - `bash scripts/diarization_model_sync.sh --json`
 - To run diarized-first in the main processing pipeline:
   - `MEETINGCTL_TRANSCRIPTION_BACKEND=sidecar`
   - `MEETINGCTL_TRANSCRIPTION_FALLBACK_TO_WHISPER=1`

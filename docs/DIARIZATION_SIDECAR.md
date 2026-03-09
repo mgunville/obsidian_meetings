@@ -21,6 +21,7 @@ This project now includes a containerized diarization path that is isolated from
 
 - Docker Desktop running locally.
 - Hugging Face token with access to pyannote diarization models.
+- No Hugging Face MCP server is required or used by this runtime.
 - Access must include dependent gated segmentation repos used by diarization pipelines:
   - `pyannote/segmentation-3.0` (used by `speaker-diarization-3.1`)
   - `pyannote/segmentation` (used by legacy `speaker-diarization`)
@@ -29,6 +30,20 @@ This project now includes a containerized diarization path that is isolated from
   - `HF_TOKEN`
   - `HUGGINGFACE_TOKEN`
   - or `MEETINGCTL_HF_TOKEN_FILE=~/.config/meetingctl/hf_token` (token file on host; wrapper exports it as env)
+
+Destination-machine setup:
+- Accept gated model access once in a browser for the HF account tied to your token:
+  - [https://huggingface.co/pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1)
+  - [https://huggingface.co/pyannote/speaker-diarization](https://huggingface.co/pyannote/speaker-diarization)
+  - [https://huggingface.co/pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0)
+  - [https://huggingface.co/pyannote/segmentation](https://huggingface.co/pyannote/segmentation)
+- If you are not using `op://...` refs, create a local token file:
+  - `mkdir -p ~/.config/meetingctl`
+  - `chmod 700 ~/.config/meetingctl`
+  - `printf '%s\n' '<hf-token>' > ~/.config/meetingctl/hf_token`
+  - `chmod 600 ~/.config/meetingctl/hf_token`
+  - set `MEETINGCTL_HF_TOKEN_FILE=~/.config/meetingctl/hf_token`
+- If you are using `op://...` refs, install 1Password CLI and confirm `op whoami` succeeds before sidecar runs.
 
 1Password note:
 - If your configured env file contains `op://...`, `scripts/diarize_sidecar.sh` runs through `scripts/secure_exec.sh` so the token resolves at runtime.
@@ -39,6 +54,15 @@ This project now includes a containerized diarization path that is isolated from
 ```bash
 cd /Users/michael.gunville/Dev/obsidian_meetings
 docker compose -f docker-compose.diarization.yml build diarizer
+```
+
+Validate the destination machine before the first real run:
+
+```bash
+cd /Users/michael.gunville/Dev/obsidian_meetings
+docker info
+docker compose -f docker-compose.diarization.yml config
+bash scripts/diarization_model_sync.sh --json
 ```
 
 ## Run (single file)

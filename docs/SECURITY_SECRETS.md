@@ -43,6 +43,8 @@ Runtime behavior:
   - `auto` (default): use `op run` only when env file contains `op://` refs
   - `1`: always use `op run`
   - `0`: skip `op run`
+- On a fresh machine, install 1Password CLI and sign in first:
+  - `op whoami` should succeed before running Hazel, Keyboard Maestro macros, or diarization commands that depend on `op://...`
 - Optional auth-friction reduction for local development:
   - `MEETINGCTL_OP_CACHE_TTL_SECONDS=<seconds>` caches resolved env values locally (for example `21600` for 6h)
   - `MEETINGCTL_OP_CACHE_DIR=~/.local/state/meetingctl/op-cache` controls cache location
@@ -51,6 +53,9 @@ Runtime behavior:
 - Diarization sidecar can receive `HUGGINGFACE_TOKEN` via `op run` env expansion.
 - Alternative for lower-friction local development: set `MEETINGCTL_HF_TOKEN_FILE=~/.config/meetingctl/hf_token`
   with `chmod 600 ~/.config/meetingctl/hf_token`; wrapper exports it for sidecar/model-sync runs.
+- Hugging Face note:
+  - this project does not use a Hugging Face MCP server
+  - the only required HF setup is a token with accepted access to the gated pyannote repos
 - `MEETINGCTL_ENV_PROFILE` controls default env file selection:
   - `dev` -> `~/.config/meetingctl/env.dev`
   - `secure` -> `~/.config/meetingctl/env.secure` (fallback `~/.config/meetingctl/env`)
