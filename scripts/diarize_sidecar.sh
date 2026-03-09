@@ -74,16 +74,20 @@ meetingctl_load_env "$ROOT_DIR"
 meetingctl_load_hf_token_from_file
 
 needs_op_for_diarization=0
+has_hf_token=0
 for key in HUGGINGFACE_TOKEN HF_TOKEN PYANNOTE_AUTH_TOKEN; do
   value="${!key:-}"
+  if [[ -n "$value" && "$value" != op://* ]]; then
+    has_hf_token=1
+    break
+  fi
   if [[ "$value" == op://* ]]; then
     needs_op_for_diarization=1
-    break
   fi
 done
 
 DOTENV_PATH="$(meetingctl_resolve_dotenv_path "$ROOT_DIR")"
-if [[ "$needs_op_for_diarization" -eq 0 && -f "$DOTENV_PATH" ]]; then
+if [[ "$has_hf_token" -eq 0 && "$needs_op_for_diarization" -eq 0 && -f "$DOTENV_PATH" ]]; then
   if rg -q '^[[:space:]]*(HUGGINGFACE_TOKEN|HF_TOKEN|PYANNOTE_AUTH_TOKEN)=.*op://' "$DOTENV_PATH"; then
     needs_op_for_diarization=1
   fi

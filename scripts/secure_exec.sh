@@ -44,6 +44,41 @@ resolve_op_binary() {
   return 1
 }
 
+ensure_op_signed_in() {
+  local op_bin="$1"
+  if "$op_bin" whoami >/dev/null 2>&1; then
+    return 0
+  fi
+
+  local open_app="${MEETINGCTL_OP_OPEN_APP_ON_AUTH_FAILURE:-1}"
+  local wait_seconds="${MEETINGCTL_OP_AUTH_WAIT_SECONDS:-20}"
+  if [[ ! "$wait_seconds" =~ ^[0-9]+$ ]]; then
+    wait_seconds=20
+  fi
+
+  if [[ "$open_app" != "0" ]] && command -v open >/dev/null 2>&1; then
+    open -a "1Password" >/dev/null 2>&1 || true
+  fi
+
+  echo "secure_exec: 1Password CLI is not signed in." >&2
+  echo "secure_exec: unlock/sign in to the 1Password app. Waiting up to ${wait_seconds}s for authentication..." >&2
+
+  if [[ -t 0 || -t 1 || -t 2 ]]; then
+    local remaining="$wait_seconds"
+    while [[ "$remaining" -gt 0 ]]; do
+      if "$op_bin" whoami >/dev/null 2>&1; then
+        echo "secure_exec: 1Password authentication detected." >&2
+        return 0
+      fi
+      sleep 1
+      remaining=$((remaining - 1))
+    done
+  fi
+
+  echo "secure_exec: timed out waiting for 1Password auth. Verify with: op whoami" >&2
+  return 1
+}
+
 dotenv_get_value() {
   local dotenv_path="$1"
   local wanted_key="$2"
@@ -207,6 +242,7 @@ if [[ "$NEEDS_OP" == "1" ]]; then
     echo "secure_exec: 1Password CLI (op) is required but not installed."
     exit 1
   fi
+  ensure_op_signed_in "$OP_BIN"
   load_cached_op_env_and_exec "$OP_BIN" "$DOTENV_PATH" "$@"
 fi
 
