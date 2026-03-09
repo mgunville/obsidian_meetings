@@ -1,10 +1,24 @@
 # Outstanding Tasks (Canonical)
 
-Last updated: 2026-03-06
+Last updated: 2026-03-09
 
 This is the single source of truth for active work. Other planning/audit docs are historical snapshots.
 
-## Current session memory (2026-03-06)
+## Current session memory (2026-03-09)
+
+- DST/local-timezone regression fixed in code:
+  - existing-note reuse now uses a real local timezone database entry instead of the machine's current offset.
+  - icalBuddy parsing now applies event-date timezone rules correctly across DST boundaries.
+- Clean deploy packaging added:
+  - `scripts/package_deploy_bundle.py` builds `dist/meetingctl-deploy-YYYYMMDD/` and `.tar.gz`.
+  - generated Hazel imports now use portable `MEETINGCTL_REPO`-based shell commands.
+  - shipped Keyboard Maestro macros now call `bash scripts/meetingctl_cli.sh ...` from `REPO_ROOT`.
+- Current verification snapshot:
+  - `.venv/bin/python -m pytest` => `182 passed`
+  - `.venv/bin/python -m ruff check .` => passes
+  - env-loaded `meetingctl doctor --json` => `ok: true`
+- Latest validation snapshot added:
+  - `docs/RELEASE_AUDIT_2026-03-09.md`
 
 - Canonical repo location moved to:
   - `/Users/michael.gunville/Dev/obsidian_meetings`
@@ -25,6 +39,9 @@ This is the single source of truth for active work. Other planning/audit docs ar
 
 ## Resolved in code/tests
 
+- [x] Keyboard Maestro bundle uses repo-local wrapper commands instead of `~/.venv-meetingctl`.
+- [x] Clean deploy bundle generation exists and emits portable Hazel import artifacts.
+- [x] Existing-note reuse and icalBuddy parsing use event-date timezone rules instead of the current shell offset.
 - [x] Ad-hoc start path guarantees `note_path` (explicit `--note-path` or auto-created ad-hoc note).
 - [x] Queue processing uses strict WAV resolution (`wav_path` payload first, else `<meeting_id>.wav`).
 - [x] Installer uses `python3` with explicit `>=3.11` version check.
@@ -59,6 +76,7 @@ This is the single source of truth for active work. Other planning/audit docs ar
   - Current result: `matched_calendar=0` / `unmatched_calendar=4` (no event matches for tested recordings in available calendar data).
 - [x] Update release/integration audit docs with fresh real-machine results from this run.
   - Updated snapshot added: `docs/RELEASE_AUDIT_2026-02-10.md`.
+  - Latest snapshot added: `docs/RELEASE_AUDIT_2026-03-09.md`.
 
 ## Deferred by request
 
@@ -67,12 +85,12 @@ This is the single source of truth for active work. Other planning/audit docs ar
   - ingest + queue + transcription + summary + note append
   - verify final note content and section ordering against template
 - [ ] Generate/importable Hazel rule artifact on another machine:
-  - inspect local Hazel DB/rule format on target host
-  - produce `.hazelrules` import package for `run_ingest_once.sh`
-  - validate import + trigger behavior without manual rule creation
+  - local Hazel rule format has been inspected on the source machine and portable `.hazelrules` files are now generated into deploy bundles.
+  - remaining closure: import the generated rules on the destination Mac and validate trigger behavior there without manual rule creation.
 - [ ] Optional: add Hazel failure/quarantine rule for unmatched or failed recordings.
 - [ ] Finalize automation path migration and remove compatibility symlink:
-  - update Hazel/KM/other launchers to use `REPO_ROOT=/Users/michael.gunville/Dev/obsidian_meetings`
+  - generated Hazel/KM assets now default to `REPO_ROOT="${MEETINGCTL_REPO:-$HOME/Dev/obsidian_meetings}"`
+  - update already-installed Hazel/KM/other launchers to the portable repo-root convention
   - verify no active references to old OneDrive repo path remain
   - remove `/Users/michael.gunville/Documents/Dev/obsidian_meetings` symlink once validated
 - [x] Resolve Anthropic API TLS trust issue in this runtime:

@@ -42,9 +42,9 @@
 						<string>ExecuteShellScript</string>
 						<key>Text</key>
 						<string>#!/bin/bash
-# Activate virtual environment and run meetingctl start
-source ~/.venv-meetingctl/bin/activate
-meetingctl start --json</string>
+REPO_ROOT="${MEETINGCTL_REPO:-$HOME/Dev/obsidian_meetings}"
+cd "$REPO_ROOT"
+bash scripts/meetingctl_cli.sh start --json</string>
 						<key>Path</key>
 						<string></string>
 						<key>TrimResultsNew</key>
@@ -195,9 +195,9 @@ meetingctl start --json</string>
 						<string>ExecuteShellScript</string>
 						<key>Text</key>
 						<string>#!/bin/bash
-# Activate virtual environment and run meetingctl stop
-source ~/.venv-meetingctl/bin/activate
-meetingctl stop --json</string>
+REPO_ROOT="${MEETINGCTL_REPO:-$HOME/Dev/obsidian_meetings}"
+cd "$REPO_ROOT"
+bash scripts/meetingctl_cli.sh stop --json</string>
 						<key>Path</key>
 						<string></string>
 						<key>TrimResultsNew</key>
@@ -358,9 +358,9 @@ meetingctl stop --json</string>
 						<string>ExecuteShellScript</string>
 						<key>Text</key>
 						<string>#!/bin/bash
-# Activate virtual environment and run meetingctl status
-source ~/.venv-meetingctl/bin/activate
-meetingctl status --json</string>
+REPO_ROOT="${MEETINGCTL_REPO:-$HOME/Dev/obsidian_meetings}"
+cd "$REPO_ROOT"
+bash scripts/meetingctl_cli.sh status --json</string>
 						<key>Path</key>
 						<string></string>
 						<key>TrimResultsNew</key>
@@ -535,9 +535,9 @@ meetingctl status --json</string>
 						<string>ExecuteShellScript</string>
 						<key>Text</key>
 						<string>#!/bin/bash
-# Activate virtual environment and run meetingctl start with ad-hoc title
-source ~/.venv-meetingctl/bin/activate
-meetingctl start --title "$KMVAR_AdHocTitle" --platform meet --json</string>
+REPO_ROOT="${MEETINGCTL_REPO:-$HOME/Dev/obsidian_meetings}"
+cd "$REPO_ROOT"
+bash scripts/meetingctl_cli.sh start --title "$KMVAR_AdHocTitle" --platform meet --json</string>
 						<key>Path</key>
 						<string></string>
 						<key>TrimResultsNew</key>

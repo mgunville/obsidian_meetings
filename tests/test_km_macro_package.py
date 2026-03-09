@@ -50,21 +50,22 @@ def _action_texts(macro: dict[str, object]) -> list[str]:
 def test_e6_s1_start_macro_uses_json_and_surfaces_fallback() -> None:
     macro = _macro_by_name("Start Meeting Recording")
     texts = _action_texts(macro)
-    assert any("meetingctl start --json" in text for text in texts)
+    assert any('REPO_ROOT="${MEETINGCTL_REPO:-$HOME/Dev/obsidian_meetings}"' in text for text in texts)
+    assert any("bash scripts/meetingctl_cli.sh start --json" in text for text in texts)
     assert any("Browser+Mic fallback" in text for text in texts)
 
 
 def test_e6_s2_stop_macro_has_immediate_confirmation_path() -> None:
     macro = _macro_by_name("Stop Meeting Recording")
     texts = _action_texts(macro)
-    assert any("meetingctl stop --json" in text for text in texts)
+    assert any("bash scripts/meetingctl_cli.sh stop --json" in text for text in texts)
     assert any("Recording Stopped" in text for text in texts)
 
 
 def test_e6_s3_status_macro_consumes_status_json() -> None:
     macro = _macro_by_name("Check Recording Status")
     texts = _action_texts(macro)
-    assert any("meetingctl status --json" in text for text in texts)
+    assert any("bash scripts/meetingctl_cli.sh status --json" in text for text in texts)
     assert any("Recording Active" in text for text in texts)
     assert any("Idle" in text for text in texts)
 
@@ -73,7 +74,11 @@ def test_e6_s4_adhoc_macro_prompts_title_and_starts_without_calendar() -> None:
     macro = _macro_by_name("Start Ad-hoc Recording")
     texts = _action_texts(macro)
     assert any("Enter meeting title for ad-hoc recording" in text for text in texts)
-    assert any('meetingctl start --title "$KMVAR_AdHocTitle" --platform meet --json' in text for text in texts)
+    assert any(
+        'bash scripts/meetingctl_cli.sh start --title "$KMVAR_AdHocTitle" --platform meet --json'
+        in text
+        for text in texts
+    )
 
 
 def test_e6_s5_autodetect_macro_disabled_by_default() -> None:

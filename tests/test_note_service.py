@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from meetingctl.note.service import (
     create_note_from_event,
@@ -192,6 +193,7 @@ def test_resolve_existing_note_for_event_start_reuses_note_anywhere_in_vault(
 ) -> None:
     monkeypatch.setenv("VAULT_PATH", str(tmp_path))
     monkeypatch.setenv("DEFAULT_MEETINGS_FOLDER", "Meetings")
+    monkeypatch.setenv("MEETINGCTL_LOCAL_TIMEZONE", "America/Chicago")
     existing = tmp_path / "_Work" / "AHEAD" / "Clients" / "Acme" / "2026-03-03 0900 - Acme Sync - m-abcd1234ef.md"
     _write_minimal_managed_note(existing, "m-abcd1234ef")
 
@@ -214,6 +216,7 @@ def test_resolve_existing_note_for_event_start_prefers_non_default_folder_on_tie
 ) -> None:
     monkeypatch.setenv("VAULT_PATH", str(tmp_path))
     monkeypatch.setenv("DEFAULT_MEETINGS_FOLDER", "Meetings")
+    monkeypatch.setenv("MEETINGCTL_LOCAL_TIMEZONE", "America/Chicago")
     meetings_note = tmp_path / "Meetings" / "2026-03-03 0900 - Auto - m-1111111111.md"
     work_note = tmp_path / "_Work" / "AHEAD" / "Team" / "2026-03-03 0900 - Manual - m-2222222222.md"
     _write_minimal_managed_note(meetings_note, "m-1111111111")
@@ -231,3 +234,24 @@ def test_resolve_existing_note_for_event_start_prefers_non_default_folder_on_tie
     assert match["meeting_id"] == "m-2222222222"
     assert Path(str(match["note_path"])).resolve() == work_note.resolve()
     assert int(match["candidate_count"]) == 2
+
+
+def test_resolve_existing_note_for_event_start_uses_event_date_dst_rules(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("VAULT_PATH", str(tmp_path))
+    monkeypatch.setenv("DEFAULT_MEETINGS_FOLDER", "Meetings")
+    monkeypatch.setattr("meetingctl.note.service._local_tz", lambda: ZoneInfo("America/Chicago"))
+    existing = tmp_path / "Meetings" / "2026-03-03 0900 - Acme Sync - m-abcd1234ef.md"
+    _write_minimal_managed_note(existing, "m-abcd1234ef")
+
+    match = resolve_existing_note_for_event_start(
+        {
+            "title": "Acme Sync",
+            "start": "2026-03-03T15:00:00+00:00",
+            "end": "2026-03-03T15:30:00+00:00",
+        }
+    )
+
+    assert match is not None
+    assert Path(str(match["note_path"])).resolve() == existing.resolve()

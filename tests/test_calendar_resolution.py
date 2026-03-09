@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -11,6 +11,7 @@ from meetingctl.calendar.backends import (
     EventKitBackend,
     ICalBuddyBackend,
     JXABackend,
+    _parse_icalbuddy_output,
 )
 from meetingctl.calendar.service import (
     CalendarResolutionError,
@@ -596,3 +597,25 @@ def test_icalbuddy_backend_raises_when_binary_missing(monkeypatch) -> None:
     backend = ICalBuddyBackend()
     with pytest.raises(BackendUnavailableError):
         backend.fetch_events()
+
+
+def test_parse_icalbuddy_output_uses_event_date_timezone_rules(monkeypatch) -> None:
+    monkeypatch.setenv("MEETINGCTL_LOCAL_TIMEZONE", "America/Chicago")
+
+    events = _parse_icalbuddy_output(
+        "###### 0900 - 0930 - Weekly Sync\n",
+        date(2026, 3, 3),
+        "Work",
+    )
+
+    assert events == [
+        {
+            "title": "Weekly Sync",
+            "start": "2026-03-03T09:00:00-06:00",
+            "end": "2026-03-03T09:30:00-06:00",
+            "calendar_name": "Work",
+            "location": "",
+            "notes": "",
+            "url": "",
+        }
+    ]

@@ -10,6 +10,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable
 
+from meetingctl.local_time import local_timezone
+
 try:
     from EventKit import EKEventStore, EKEntityTypeEvent
     from Foundation import NSDate
@@ -250,7 +252,7 @@ class JXABackend:
             ) from exc
         except json.JSONDecodeError as exc:
             raise RuntimeError(
-                f"Failed to parse JXA output. Run `meetingctl doctor` for diagnostics."
+                "Failed to parse JXA output. Run `meetingctl doctor` for diagnostics."
             ) from exc
 
     def fetch_events(
@@ -316,12 +318,13 @@ class ICalBuddyBackend:
             command.extend(["-ic", calendar_name])
 
         if start is not None and end is not None:
-            command.append(f"eventsFrom:{start.astimezone().date().isoformat()}")
-            command.append(f"to:{end.astimezone().date().isoformat()}")
-            event_date = start.astimezone().date()
+            local_tz = local_timezone()
+            command.append(f"eventsFrom:{start.astimezone(local_tz).date().isoformat()}")
+            command.append(f"to:{end.astimezone(local_tz).date().isoformat()}")
+            event_date = start.astimezone(local_tz).date()
         else:
             command.append("eventsToday")
-            event_date = datetime.now().astimezone().date()
+            event_date = datetime.now(local_timezone()).date()
 
         timeout_seconds = float(os.environ.get("MEETINGCTL_ICALBUDDY_TIMEOUT_SECONDS", "30"))
         result = subprocess.run(
@@ -424,7 +427,7 @@ def _parse_icalbuddy_output(
     event_date,
     calendar_name: str,
 ) -> list[dict[str, object]]:
-    local_tz = datetime.now().astimezone().tzinfo
+    local_tz = local_timezone()
     pattern = re.compile(r"^#+\s*(\d{4})\s*-\s*(\d{4})\s*-\s*(.+)$")
     parsed: list[dict[str, object]] = []
     for line in raw.splitlines():

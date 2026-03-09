@@ -104,6 +104,25 @@ bash "$REPO_ROOT/scripts/secure_exec.sh" \
 5. Audit duplicate meeting notes after bulk runs:
    - `PYTHONPATH=src python3 -m meetingctl.cli audit-notes --json`
 
+## Importable Rule Package
+
+To generate portable Hazel imports for another Mac:
+
+- `PYTHONPATH=src .venv/bin/python scripts/package_deploy_bundle.py --json`
+
+Output:
+
+- `dist/meetingctl-deploy-YYYYMMDD/deploy/hazel/MeetingCtl - Ingest Notes Audio.hazelrules`
+- `dist/meetingctl-deploy-YYYYMMDD/deploy/hazel/MeetingCtl - Ingest Voice Memos.hazelrules`
+
+These generated rules use:
+
+```bash
+REPO_ROOT="${MEETINGCTL_REPO:-$HOME/Dev/obsidian_meetings}"
+```
+
+so the destination machine can import them without hardcoded source-machine paths.
+
 ## Failed Jobs Monitoring + Reprocess
 
 - List latest failed jobs from dead-letter:

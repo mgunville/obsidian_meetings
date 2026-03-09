@@ -203,3 +203,18 @@ bash scripts/meetingctl_cli.sh status --json
 4. UI/macros reference:
    - `docs/UI-QUICKSTART.md`
    - `docs/HOTKEYS.md`
+
+### Clean Deploy Packaging
+
+Build a fresh-machine bundle with portable Hazel and Keyboard Maestro assets:
+
+```bash
+PYTHONPATH=src .venv/bin/python scripts/package_deploy_bundle.py --json
+```
+
+Artifacts:
+
+- `dist/meetingctl-deploy-YYYYMMDD/`
+- `dist/meetingctl-deploy-YYYYMMDD.tar.gz`
+
+The bundle contains generated Hazel imports in `deploy/hazel/` and a destination-side checklist in `deploy/DEPLOY.md`.

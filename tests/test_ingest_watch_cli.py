@@ -93,6 +93,7 @@ def test_ingest_watch_reuses_existing_start_time_note_for_calendar_match(
     monkeypatch.setenv("RECORDINGS_PATH", str(recordings))
     monkeypatch.setenv("VAULT_PATH", str(vault))
     monkeypatch.setenv("DEFAULT_MEETINGS_FOLDER", "Meetings")
+    monkeypatch.setenv("MEETINGCTL_LOCAL_TIMEZONE", "America/Chicago")
     monkeypatch.setenv("MEETINGCTL_PROCESS_QUEUE_FILE", str(queue))
     monkeypatch.setenv("MEETINGCTL_INGESTED_FILES_FILE", str(ingested))
 

@@ -12,6 +12,20 @@ This does:
 - marks `scripts/eventkit_fetch.py` executable
 - uses a non-`pyenv` shim Python binary to avoid PEP 668/system-package conflicts
 
+## 1b) Build a Clean-Machine Deploy Bundle
+From the source machine with Hazel already configured:
+- `PYTHONPATH=src .venv/bin/python scripts/package_deploy_bundle.py --json`
+
+This writes:
+- `dist/meetingctl-deploy-YYYYMMDD/`
+- `dist/meetingctl-deploy-YYYYMMDD.tar.gz`
+
+The generated bundle includes:
+- the repo snapshot needed for install and verification
+- portable Keyboard Maestro macros that call `bash scripts/meetingctl_cli.sh ...`
+- generated Hazel import rules under `deploy/hazel/`
+- `deploy/DEPLOY.md` with the destination-machine import sequence
+
 ## 2) Required Environment Variables
 Preferred env file location:
 - `~/.config/meetingctl/env`
@@ -180,6 +194,8 @@ Permission probe:
 - It runs one ingest pass (`ingest-watch --once --match-calendar`) followed by queue processing.
 - Recommended trigger:
   - New `.wav` in `RECORDINGS_PATH` older than `MEETINGCTL_INGEST_MIN_AGE_SECONDS`.
+- For another Mac, prefer importing the generated rules from:
+  - `dist/meetingctl-deploy-YYYYMMDD/deploy/hazel/`
 - Full Hazel rule details:
   - `docs/HAZEL_SETUP.md`
 

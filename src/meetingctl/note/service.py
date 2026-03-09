@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from meetingctl.local_time import local_timezone
 from meetingctl.note.identity import (
     build_note_filename,
     ensure_collision_safe_path,
@@ -23,7 +24,7 @@ def _note_directory() -> Path:
 
 
 def _local_tz():
-    return datetime.now().astimezone().tzinfo or UTC
+    return local_timezone()
 
 
 def _recording_filename_tz():

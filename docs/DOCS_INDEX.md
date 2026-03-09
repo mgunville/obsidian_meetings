@@ -1,6 +1,6 @@
 # Documentation Index (Canonical)
 
-Last updated: 2026-03-03
+Last updated: 2026-03-09
 
 Use this file as the top-level map for project documentation.
 
@@ -14,7 +14,7 @@ Use this file as the top-level map for project documentation.
 - `docs/DIARIZATION_SIDECAR.md`: local pyannote-in-container diarization workflow and compose operations.
 - `docs/DIARIZATION_CATCHUP_AGENT.md`: cross-machine catch-up runbook for diarized transcript generation + minutes refresh.
 - `docs/SECURITY_SECRETS.md`: secret handling, 1Password integration, and runtime hardening.
-- `docs/RELEASE_AUDIT_2026-02-09.md`: latest release readiness audit baseline.
+- `docs/RELEASE_AUDIT_2026-03-09.md`: latest release readiness audit baseline.
 - `docs/TDD_AND_DOD.md`: engineering quality gates and definition of done.
 - `docs/WORKING_CHARTER.md`: day-to-day operating rules.
 - `docs/UI-QUICKSTART.md`: operator quickstart for KM/UI workflows.
@@ -36,5 +36,5 @@ These remain for traceability but are no longer the live planning source:
 ## Validation Artifacts
 
 - `docs/archive/INTEGRATION_SMOKE_REPORT_2026-02-08.md`: prior smoke evidence snapshot.
-- `docs/RELEASE_AUDIT_2026-02-09.md`: release audit baseline.
+- `docs/RELEASE_AUDIT_2026-03-09.md`: release audit baseline.
 - `docs/OUTSTANDING_TASKS.md`: current closure checklist for next validation run.
