@@ -2,13 +2,16 @@ from __future__ import annotations
 
 from pathlib import Path
 import plistlib
+import subprocess
 
 from meetingctl.deploy import (
     PORTABLE_HAZEL_SCRIPT,
     build_deploy_bundle,
+    deploy_bundle,
     default_bundle_name,
     discover_hazel_template,
     render_hazel_rule,
+    sync_bundle_to_target,
 )
 
 
@@ -85,3 +88,58 @@ def test_build_deploy_bundle_writes_expected_artifacts(tmp_path: Path) -> None:
     assert "MEETINGCTL_REPO" in deploy_readme
     assert "RECORDINGS_PATH=~/Notes/audio" in deploy_readme
     assert "no Hugging Face MCP server is needed" in deploy_readme
+    assert "python3 scripts/deploy_bundle_apply.py --bundle-dir . --target-dir ~/Dev/obsidian_meetings" in deploy_readme
+
+
+def test_sync_bundle_to_target_replaces_managed_paths_and_preserves_unmanaged(tmp_path: Path) -> None:
+    bundle_dir = tmp_path / "bundle"
+    bundle_dir.mkdir()
+    (bundle_dir / "install.sh").write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+    (bundle_dir / "README.md").write_text("new readme\n", encoding="utf-8")
+    docs_dir = bundle_dir / "docs"
+    docs_dir.mkdir()
+    (docs_dir / "guide.md").write_text("fresh docs\n", encoding="utf-8")
+
+    target_dir = tmp_path / "target"
+    target_dir.mkdir()
+    (target_dir / "README.md").write_text("old readme\n", encoding="utf-8")
+    stale_docs = target_dir / "docs"
+    stale_docs.mkdir()
+    (stale_docs / "obsolete.md").write_text("stale\n", encoding="utf-8")
+    shared_data = target_dir / "shared_data"
+    shared_data.mkdir()
+    (shared_data / "keep.txt").write_text("preserve\n", encoding="utf-8")
+    venv = target_dir / ".venv"
+    venv.mkdir()
+    (venv / "marker").write_text("preserve\n", encoding="utf-8")
+
+    result = sync_bundle_to_target(bundle_dir, target_dir)
+
+    assert result["target_dir"] == str(target_dir.resolve())
+    assert (target_dir / "README.md").read_text(encoding="utf-8") == "new readme\n"
+    assert (target_dir / "docs" / "guide.md").read_text(encoding="utf-8") == "fresh docs\n"
+    assert not (target_dir / "docs" / "obsolete.md").exists()
+    assert (target_dir / "shared_data" / "keep.txt").read_text(encoding="utf-8") == "preserve\n"
+    assert (target_dir / ".venv" / "marker").read_text(encoding="utf-8") == "preserve\n"
+
+
+def test_deploy_bundle_runs_install_after_sync(monkeypatch, tmp_path: Path) -> None:
+    bundle_dir = tmp_path / "bundle"
+    bundle_dir.mkdir()
+    (bundle_dir / "install.sh").write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+    (bundle_dir / "README.md").write_text("bundle\n", encoding="utf-8")
+    target_dir = tmp_path / "target"
+
+    calls: list[tuple[list[str], str]] = []
+
+    def _runner(args, cwd=None, check=False, capture_output=True, text=True):
+        calls.append((list(args), str(cwd)))
+        return subprocess.CompletedProcess(args=args, returncode=0, stdout="ok", stderr="")
+
+    monkeypatch.setattr("meetingctl.deploy.subprocess.run", _runner)
+
+    result = deploy_bundle(bundle_dir=bundle_dir, target_dir=target_dir)
+
+    assert (target_dir / "README.md").read_text(encoding="utf-8") == "bundle\n"
+    assert calls == [(["bash", "install.sh"], str(target_dir.resolve()))]
+    assert result["install"]["ok"] is True

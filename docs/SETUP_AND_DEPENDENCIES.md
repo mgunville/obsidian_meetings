@@ -25,6 +25,13 @@ The generated bundle includes:
 - portable Keyboard Maestro macros that call `bash scripts/meetingctl_cli.sh ...`
 - generated Hazel import rules under `deploy/hazel/`
 - `deploy/DEPLOY.md` with the destination-machine import sequence
+- `scripts/deploy_bundle_apply.py` so the destination machine can overwrite/update an existing repo cleanly and rerun `install.sh`
+
+Destination-machine apply command:
+- extracted bundle:
+  - `python3 scripts/deploy_bundle_apply.py --bundle-dir . --target-dir ~/Dev/obsidian_meetings`
+- archive directly:
+  - `python3 scripts/deploy_bundle_apply.py --archive /path/to/meetingctl-deploy-YYYYMMDD.tar.gz --target-dir ~/Dev/obsidian_meetings`
 
 ## 2) Required Environment Variables
 Preferred env file location:

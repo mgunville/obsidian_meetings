@@ -30,6 +30,13 @@ Install separately:
 5. Run doctor:
    - `bash scripts/meetingctl_cli.sh doctor --json`
 
+## Repeatable Deploy / Update
+- Build a portable bundle on the source machine:
+  - `PYTHONPATH=src .venv/bin/python scripts/package_deploy_bundle.py --json`
+- Apply or refresh that bundle on another Mac:
+  - `python3 scripts/deploy_bundle_apply.py --bundle-dir . --target-dir ~/Dev/obsidian_meetings`
+- The apply script overwrites the shipped project paths, preserves local state such as `.venv` and `shared_data`, and reruns `install.sh`.
+
 ## Secret Management (Recommended)
 - Keep secrets out of repo/cloud-synced workspace paths.
 - Default secure env path is `~/.config/meetingctl/env` (overridable with `MEETINGCTL_DOTENV_PATH`).

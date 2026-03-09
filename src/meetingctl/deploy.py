@@ -5,7 +5,10 @@ import json
 from pathlib import Path
 import plistlib
 import shutil
+import subprocess
 import tarfile
+import tempfile
+from typing import Any
 
 
 PORTABLE_HAZEL_SCRIPT = """REPO_ROOT="${MEETINGCTL_REPO:-$HOME/Dev/obsidian_meetings}"
@@ -154,6 +157,101 @@ def _copy_path(src: Path, dest: Path) -> None:
         shutil.copy2(src, dest)
 
 
+def _remove_path(path: Path) -> None:
+    if not path.exists() and not path.is_symlink():
+        return
+    if path.is_symlink() or path.is_file():
+        path.unlink()
+        return
+    if path.is_dir():
+        shutil.rmtree(path)
+        return
+    path.unlink(missing_ok=True)
+
+
+def _validate_bundle_dir(bundle_dir: Path) -> Path:
+    resolved = bundle_dir.expanduser().resolve()
+    if not resolved.exists():
+        raise FileNotFoundError(f"Bundle directory does not exist: {resolved}")
+    if not resolved.is_dir():
+        raise NotADirectoryError(f"Bundle path is not a directory: {resolved}")
+    if not (resolved / "install.sh").exists():
+        raise FileNotFoundError(f"Bundle directory is missing install.sh: {resolved}")
+    return resolved
+
+
+def extract_bundle_archive(archive_path: Path, destination_root: Path) -> Path:
+    resolved_archive = archive_path.expanduser().resolve()
+    if not resolved_archive.exists():
+        raise FileNotFoundError(f"Bundle archive does not exist: {resolved_archive}")
+    destination_root.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(resolved_archive, "r:gz") as tar:
+        members = tar.getmembers()
+        roots = {Path(member.name).parts[0] for member in members if member.name and Path(member.name).parts}
+        if len(roots) != 1:
+            raise ValueError(f"Bundle archive must contain exactly one top-level directory: {resolved_archive}")
+        tar.extractall(destination_root)
+    bundle_dir = destination_root / next(iter(roots))
+    return _validate_bundle_dir(bundle_dir)
+
+
+def sync_bundle_to_target(bundle_dir: Path, target_dir: Path) -> dict[str, Any]:
+    resolved_bundle = _validate_bundle_dir(bundle_dir)
+    resolved_target = target_dir.expanduser().resolve()
+    resolved_target.mkdir(parents=True, exist_ok=True)
+
+    copied_entries: list[str] = []
+    for entry in sorted(resolved_bundle.iterdir(), key=lambda item: item.name):
+        if entry.name in {".DS_Store"}:
+            continue
+        destination = resolved_target / entry.name
+        _remove_path(destination)
+        _copy_path(entry, destination)
+        copied_entries.append(entry.name)
+
+    return {
+        "bundle_dir": str(resolved_bundle),
+        "target_dir": str(resolved_target),
+        "copied_entries": copied_entries,
+    }
+
+
+def deploy_bundle(
+    *,
+    target_dir: Path,
+    archive_path: Path | None = None,
+    bundle_dir: Path | None = None,
+    run_install: bool = True,
+) -> dict[str, Any]:
+    if bool(archive_path) == bool(bundle_dir):
+        raise ValueError("Provide exactly one of archive_path or bundle_dir.")
+
+    if archive_path is not None:
+        with tempfile.TemporaryDirectory(prefix="meetingctl-deploy-") as temp_dir:
+            extracted_bundle = extract_bundle_archive(archive_path, Path(temp_dir))
+            result = sync_bundle_to_target(extracted_bundle, target_dir)
+    else:
+        result = sync_bundle_to_target(bundle_dir or Path("."), target_dir)
+
+    if run_install:
+        completed = subprocess.run(
+            ["bash", "install.sh"],
+            cwd=Path(result["target_dir"]),
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        result["install"] = {
+            "ok": completed.returncode == 0,
+            "returncode": completed.returncode,
+            "stdout": completed.stdout,
+            "stderr": completed.stderr,
+        }
+        if completed.returncode != 0:
+            raise RuntimeError(f"install.sh failed in {result['target_dir']}")
+    return result
+
+
 def _write_deploy_readme(bundle_dir: Path, hazel_template: Path | None) -> None:
     deploy_root = bundle_dir.name
     hazel_line = "Auto-generated from local Hazel template discovery."
@@ -163,14 +261,17 @@ def _write_deploy_readme(bundle_dir: Path, hazel_template: Path | None) -> None:
         [
             "# Deploy Bundle",
             "",
-            "1. Extract this bundle on the destination Mac into `~/Dev/obsidian_meetings` or set `MEETINGCTL_REPO` to the extracted path.",
-            "2. Run `bash install.sh` from the extracted repo root.",
-            "3. Fill in `~/.config/meetingctl/env` (or `env.secure`) with at least `VAULT_PATH`, `RECORDINGS_PATH=~/Notes/audio`, and your summary/diarization secrets.",
-            "4. If the env uses `op://...` refs, install/sign in to 1Password CLI so `op whoami` succeeds on the destination Mac.",
-            "5. For diarization: no Hugging Face MCP server is needed, but the HF token must have accepted access to the gated pyannote repos before the first sidecar run.",
-            "6. Validate Docker with `docker info`, then run `bash scripts/meetingctl_cli.sh doctor --json`.",
-            "7. Import `config/km/Meeting-Automation-Macros.kmmacros` into Keyboard Maestro.",
-            "8. Import the generated Hazel rules from `deploy/hazel/`.",
+            "1. Extract this bundle anywhere on the destination Mac.",
+            "2. Apply or update the target repo with:",
+            "   `python3 scripts/deploy_bundle_apply.py --bundle-dir . --target-dir ~/Dev/obsidian_meetings`",
+            "   This overwrites the shipped project paths in the target repo, preserves local state like `.venv` and `shared_data`, and reruns `install.sh`.",
+            "3. If you install somewhere other than `~/Dev/obsidian_meetings`, set `MEETINGCTL_REPO` to the target repo path.",
+            "4. Fill in `~/.config/meetingctl/env` (or `env.secure`) with at least `VAULT_PATH`, `RECORDINGS_PATH=~/Notes/audio`, and your summary/diarization secrets.",
+            "5. If the env uses `op://...` refs, install/sign in to 1Password CLI so `op whoami` succeeds on the destination Mac.",
+            "6. For diarization: no Hugging Face MCP server is needed, but the HF token must have accepted access to the gated pyannote repos before the first sidecar run.",
+            "7. Validate Docker with `docker info`, then run `bash scripts/meetingctl_cli.sh doctor --json`.",
+            "8. Import `config/km/Meeting-Automation-Macros.kmmacros` into Keyboard Maestro.",
+            "9. Import the generated Hazel rules from `deploy/hazel/`.",
             "",
             f"Bundle root: `{deploy_root}`",
             hazel_line,

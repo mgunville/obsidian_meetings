@@ -212,6 +212,12 @@ Build a fresh-machine bundle with portable Hazel and Keyboard Maestro assets:
 PYTHONPATH=src .venv/bin/python scripts/package_deploy_bundle.py --json
 ```
 
+Apply or update that bundle on a destination machine:
+
+```bash
+python3 scripts/deploy_bundle_apply.py --bundle-dir . --target-dir ~/Dev/obsidian_meetings
+```
+
 Artifacts:
 
 - `dist/meetingctl-deploy-YYYYMMDD/`
