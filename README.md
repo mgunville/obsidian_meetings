@@ -37,6 +37,12 @@ Install separately:
   - `python3 scripts/deploy_bundle_apply.py --bundle-dir . --target-dir ~/Dev/obsidian_meetings`
 - The apply script overwrites the shipped project paths, preserves local state such as `.venv` and `shared_data`, and reruns `install.sh`.
 
+## One-Command Machine Refresh + Backfill
+- Clean clone + rebuild runtime + run backfill:
+  - `git clone https://github.com/mgunville/obsidian_meetings.git ~/Dev/obsidian_meetings && cd ~/Dev/obsidian_meetings && bash scripts/setup_upgrade_and_backfill.sh`
+- Optional diarization catch-up after the regular backfill:
+  - `git clone https://github.com/mgunville/obsidian_meetings.git ~/Dev/obsidian_meetings && cd ~/Dev/obsidian_meetings && bash scripts/setup_upgrade_and_backfill.sh --with-diarization`
+
 ## Secret Management (Recommended)
 - Keep secrets out of repo/cloud-synced workspace paths.
 - Default secure env path is `~/.config/meetingctl/env` (overridable with `MEETINGCTL_DOTENV_PATH`).

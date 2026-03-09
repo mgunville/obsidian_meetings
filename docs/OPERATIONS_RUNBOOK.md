@@ -17,6 +17,12 @@ Recommended runtime for all commands:
 bash scripts/meetingctl_cli.sh --help
 ```
 
+Full-machine rebuild + backfill:
+
+```bash
+bash scripts/setup_upgrade_and_backfill.sh
+```
+
 Dependency checks:
 
 ```bash

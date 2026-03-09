@@ -12,6 +12,17 @@ This does:
 - marks `scripts/eventkit_fetch.py` executable
 - uses a non-`pyenv` shim Python binary to avoid PEP 668/system-package conflicts
 
+One-command clean rebuild + backfill:
+- `bash scripts/setup_upgrade_and_backfill.sh`
+
+This wrapper:
+- optionally pulls latest git changes when the repo is clean
+- recreates `.venv` from scratch
+- ensures the selected env profile file exists with sane defaults
+- runs `doctor`
+- runs `backfill --match-calendar --process-now` over `RECORDINGS_PATH`
+- optional: `--with-diarization`
+
 ## 1b) Build a Clean-Machine Deploy Bundle
 From the source machine with Hazel already configured:
 - `PYTHONPATH=src .venv/bin/python scripts/package_deploy_bundle.py --json`
