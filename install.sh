@@ -42,8 +42,8 @@ VENV_PIP="$ROOT_DIR/.venv/bin/pip"
 "$VENV_PIP" install openai-whisper
 
 "$VENV_PY" - <<'PY'
-import importlib
-missing = [m for m in ("setuptools", "wheel") if importlib.util.find_spec(m) is None]
+from importlib.util import find_spec
+missing = [m for m in ("setuptools", "wheel") if find_spec(m) is None]
 if missing:
     raise SystemExit(f"Missing packaging modules in .venv: {', '.join(missing)}")
 print("Packaging backend check: OK")
