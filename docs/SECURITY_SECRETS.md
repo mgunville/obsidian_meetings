@@ -52,6 +52,9 @@ Runtime behavior:
 - Focus-stealing guard:
   - interactive `secure_exec.sh` runs may open 1Password and wait for auth
   - non-interactive/background runs do not open 1Password or take focus; they fail fast unless cached env values or local token files are available
+- Manual cache refresh helper:
+  - `MEETINGCTL_ENV_PROFILE=secure bash scripts/refresh_op_cache.sh`
+  - use this from a signed-in terminal to refresh `~/.local/state/meetingctl/op-cache/resolved-*.env|.meta` before a workday or before Hazel-heavy capture periods
 - `meetingctl` resolves `MEETINGCTL_ANTHROPIC_API_KEY_OP_REF` via `op read` at summary time.
 - Diarization sidecar can receive `HUGGINGFACE_TOKEN` via `op run` env expansion.
 - Alternative for lower-friction local development: set `MEETINGCTL_HF_TOKEN_FILE=~/.config/meetingctl/hf_token`

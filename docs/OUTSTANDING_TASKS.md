@@ -88,6 +88,10 @@ This is the single source of truth for active work. Other planning/audit docs ar
   - local Hazel rule format has been inspected on the source machine and portable `.hazelrules` files are now generated into deploy bundles.
   - remaining closure: import the generated rules on the destination Mac and validate trigger behavior there without manual rule creation.
 - [ ] Optional: add Hazel failure/quarantine rule for unmatched or failed recordings.
+- [ ] Optional: add a headless 1Password cache-refresh helper for automations.
+  - goal: refresh `~/.local/state/meetingctl/op-cache/resolved-*.env|.meta` during the workday while the user is already signed in, so Hazel can keep using cached values without focus-stealing auth prompts.
+  - constraint: it should not try to force fresh interactive auth from a background process.
+  - likely shape: a small script plus optional Keyboard Maestro or `launchd` schedule.
 - [ ] Finalize automation path migration and remove compatibility symlink:
   - generated Hazel/KM assets now default to `REPO_ROOT="${MEETINGCTL_REPO:-$HOME/Dev/obsidian_meetings}"`
   - update already-installed Hazel/KM/other launchers to the portable repo-root convention

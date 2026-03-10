@@ -98,6 +98,8 @@ bash "$REPO_ROOT/scripts/secure_exec.sh" \
   - `MEETINGCTL_OP_CACHE_TTL_SECONDS` so `secure_exec.sh` can reuse cached resolved env values
   - `MEETINGCTL_HF_TOKEN_FILE=~/.config/meetingctl/hf_token` for diarization
   - a direct `ANTHROPIC_API_KEY` or other non-`op://` secret source for fully headless runs
+- Manual cache prime/refresh from a signed-in terminal:
+  - `MEETINGCTL_ENV_PROFILE=secure bash scripts/refresh_op_cache.sh`
 
 ## Quick Validation
 
