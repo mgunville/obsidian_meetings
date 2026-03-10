@@ -174,10 +174,6 @@ load_cached_op_env_and_exec() {
     ttl=0
   fi
 
-  if [[ "$ttl" -le 0 ]]; then
-    exec "$op_bin" run --env-file "$dotenv_path" -- "$@"
-  fi
-
   local cache_dir="${MEETINGCTL_OP_CACHE_DIR:-}"
   if [[ -z "$cache_dir" && -f "$dotenv_path" ]]; then
     cache_dir="$(dotenv_get_value "$dotenv_path" "MEETINGCTL_OP_CACHE_DIR" || true)"
@@ -207,6 +203,12 @@ load_cached_op_env_and_exec() {
   if [[ -f "$cache_env_file" && "$expires_epoch" -gt "$now_epoch" ]]; then
     load_dotenv_file "$cache_env_file"
     exec "$@"
+  fi
+
+  ensure_op_signed_in "$op_bin"
+
+  if [[ "$ttl" -le 0 ]]; then
+    exec "$op_bin" run --env-file "$dotenv_path" -- "$@"
   fi
 
   local env_dump
@@ -266,7 +268,6 @@ if [[ "$NEEDS_OP" == "1" ]]; then
     echo "secure_exec: 1Password CLI (op) is required but not installed."
     exit 1
   fi
-  ensure_op_signed_in "$OP_BIN"
   load_cached_op_env_and_exec "$OP_BIN" "$DOTENV_PATH" "$@"
 fi
 
