@@ -50,8 +50,28 @@ ensure_op_signed_in() {
     return 0
   fi
 
-  local open_app="${MEETINGCTL_OP_OPEN_APP_ON_AUTH_FAILURE:-1}"
-  local wait_seconds="${MEETINGCTL_OP_AUTH_WAIT_SECONDS:-20}"
+  local is_interactive=0
+  if [[ -t 0 || -t 1 || -t 2 ]]; then
+    is_interactive=1
+  fi
+
+  local open_app="${MEETINGCTL_OP_OPEN_APP_ON_AUTH_FAILURE:-}"
+  if [[ -z "$open_app" ]]; then
+    if [[ "$is_interactive" -eq 1 ]]; then
+      open_app=1
+    else
+      open_app=0
+    fi
+  fi
+
+  local wait_seconds="${MEETINGCTL_OP_AUTH_WAIT_SECONDS:-}"
+  if [[ -z "$wait_seconds" ]]; then
+    if [[ "$is_interactive" -eq 1 ]]; then
+      wait_seconds=20
+    else
+      wait_seconds=0
+    fi
+  fi
   if [[ ! "$wait_seconds" =~ ^[0-9]+$ ]]; then
     wait_seconds=20
   fi
@@ -61,9 +81,13 @@ ensure_op_signed_in() {
   fi
 
   echo "secure_exec: 1Password CLI is not signed in." >&2
-  echo "secure_exec: unlock/sign in to the 1Password app. Waiting up to ${wait_seconds}s for authentication..." >&2
+  if [[ "$is_interactive" -eq 1 ]]; then
+    echo "secure_exec: unlock/sign in to the 1Password app. Waiting up to ${wait_seconds}s for authentication..." >&2
+  else
+    echo "secure_exec: background run will not open 1Password or steal focus. Use cached env values, direct env vars, or local token files for headless runs." >&2
+  fi
 
-  if [[ -t 0 || -t 1 || -t 2 ]]; then
+  if [[ "$is_interactive" -eq 1 ]]; then
     local remaining="$wait_seconds"
     while [[ "$remaining" -gt 0 ]]; do
       if "$op_bin" whoami >/dev/null 2>&1; then

@@ -85,11 +85,19 @@ bash "$REPO_ROOT/scripts/secure_exec.sh" \
 - `MEETINGCTL_USE_1PASSWORD=auto` (default; use `op run` only when env includes `op://` refs)
 - `MEETINGCTL_ENV_PROFILE=secure` (optional explicit profile)
 - `MEETINGCTL_HAZEL_ENV_PROFILE=secure` (default for Hazel ingest in `secure_exec.sh`; set to `dev` only if you intentionally want non-secret local config)
+- `MEETINGCTL_OP_CACHE_TTL_SECONDS=21600` (recommended for Hazel if using `op://...` refs; lets Hazel reuse resolved env values for 6h instead of triggering interactive auth during note-taking)
 - `MEETINGCTL_ANTHROPIC_API_KEY_OP_REF=op://Private/Anthropic/api_key` (recommended 1Password ref)
 - `MEETINGCTL_SUMMARY_USE_SYSTEM_TRUST=1` (recommended: use macOS trust roots via `truststore` for Anthropic TLS)
 - `MEETINGCTL_SUMMARY_REQUEST_RETRIES=2` (optional: retries for transient 429/529/connection errors)
 - `MEETINGCTL_SUMMARY_RETRY_BASE_SECONDS=2` (optional: exponential backoff base delay)
 - `MEETINGCTL_AUDIO_DONE_MODE=sidecar` (default: create `<audio>.done.json`; use `none` to disable)
+
+1Password focus behavior:
+- Background runs now do not open the 1Password app or steal focus when auth is missing.
+- If Hazel needs secrets without interruption, prefer one of:
+  - `MEETINGCTL_OP_CACHE_TTL_SECONDS` so `secure_exec.sh` can reuse cached resolved env values
+  - `MEETINGCTL_HF_TOKEN_FILE=~/.config/meetingctl/hf_token` for diarization
+  - a direct `ANTHROPIC_API_KEY` or other non-`op://` secret source for fully headless runs
 
 ## Quick Validation
 

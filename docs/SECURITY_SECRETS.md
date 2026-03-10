@@ -49,6 +49,9 @@ Runtime behavior:
   - `MEETINGCTL_OP_CACHE_TTL_SECONDS=<seconds>` caches resolved env values locally (for example `21600` for 6h)
   - `MEETINGCTL_OP_CACHE_DIR=~/.local/state/meetingctl/op-cache` controls cache location
   - `0` or unset disables caching
+- Focus-stealing guard:
+  - interactive `secure_exec.sh` runs may open 1Password and wait for auth
+  - non-interactive/background runs do not open 1Password or take focus; they fail fast unless cached env values or local token files are available
 - `meetingctl` resolves `MEETINGCTL_ANTHROPIC_API_KEY_OP_REF` via `op read` at summary time.
 - Diarization sidecar can receive `HUGGINGFACE_TOKEN` via `op run` env expansion.
 - Alternative for lower-friction local development: set `MEETINGCTL_HF_TOKEN_FILE=~/.config/meetingctl/hf_token`
