@@ -46,7 +46,7 @@ Runtime behavior:
 - On a fresh machine, install 1Password CLI and sign in first:
   - `op whoami` should succeed before running Hazel, Keyboard Maestro macros, or diarization commands that depend on `op://...`
 - Optional auth-friction reduction for local development:
-  - `MEETINGCTL_OP_CACHE_TTL_SECONDS=<seconds>` caches resolved env values locally (for example `21600` for 6h)
+  - `MEETINGCTL_OP_CACHE_TTL_SECONDS=<seconds>` caches resolved env values locally (for example `36000` for a 10h workday)
   - `MEETINGCTL_OP_CACHE_DIR=~/.local/state/meetingctl/op-cache` controls cache location
   - `0` or unset disables caching
 - Focus-stealing guard:

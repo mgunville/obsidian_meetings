@@ -152,6 +152,8 @@ MEETINGCTL_INGEST_FORWARD_WINDOW_MINUTES=10
 MEETINGCTL_INGEST_BACKWARD_WINDOW_MINUTES=15
 MEETINGCTL_INGEST_MIN_AGE_SECONDS=15
 MEETINGCTL_USE_1PASSWORD=auto
+MEETINGCTL_OP_CACHE_TTL_SECONDS=36000
+MEETINGCTL_OP_CACHE_DIR=~/.local/state/meetingctl/op-cache
 EOF
       chmod 600 "$env_path" 2>/dev/null || true
     fi
@@ -166,6 +168,8 @@ EOF
   append_if_missing "$env_path" "MEETINGCTL_INGEST_BACKWARD_WINDOW_MINUTES" "15"
   append_if_missing "$env_path" "MEETINGCTL_INGEST_MIN_AGE_SECONDS" "15"
   append_if_missing "$env_path" "MEETINGCTL_USE_1PASSWORD" "auto"
+  append_if_missing "$env_path" "MEETINGCTL_OP_CACHE_TTL_SECONDS" "36000"
+  append_if_missing "$env_path" "MEETINGCTL_OP_CACHE_DIR" "~/.local/state/meetingctl/op-cache"
 
   if [[ -f "$HOME/.config/meetingctl/hf_token" ]]; then
     append_if_missing "$env_path" "MEETINGCTL_HF_TOKEN_FILE" "~/.config/meetingctl/hf_token"
