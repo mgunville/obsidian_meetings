@@ -22,5 +22,16 @@ meetingctl_load_hf_token_from_file() {
       return 0
     fi
   done
+
+  token_path="$HOME/.config/meetingctl/hf_token"
+  if [[ -f "$token_path" ]]; then
+    token="$(tr -d '\r' < "$token_path" | awk 'NF{print; exit}')"
+    token="${token#"${token%%[![:space:]]*}"}"
+    token="${token%"${token##*[![:space:]]}"}"
+    if [[ -n "$token" ]]; then
+      export HUGGINGFACE_TOKEN="$token"
+      return 0
+    fi
+  fi
   return 0
 }
