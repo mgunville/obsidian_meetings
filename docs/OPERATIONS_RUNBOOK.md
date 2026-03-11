@@ -107,6 +107,13 @@ find ~/Notes/audio -type f -name '*.mp3' | while read -r mp3; do
 done
 ```
 
+Prune orphaned meeting artifact folders whose notes no longer exist anywhere in the vault:
+
+```bash
+./.venv/bin/python scripts/prune_orphan_artifacts.py --json
+./.venv/bin/python scripts/prune_orphan_artifacts.py --apply --json
+```
+
 Run tags normalization helpers (from repo):
 
 ```bash
