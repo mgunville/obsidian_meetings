@@ -82,6 +82,46 @@ def test_backfill_cli_process_now_runs_pipeline(monkeypatch, tmp_path: Path, cap
     assert not wav.exists()
 
 
+def test_backfill_cli_skips_already_ingested_recording_family(
+    monkeypatch, tmp_path: Path, capsys
+) -> None:
+    recordings = tmp_path / "recordings"
+    recordings.mkdir(parents=True, exist_ok=True)
+    vault = tmp_path / "vault"
+    vault.mkdir(parents=True, exist_ok=True)
+    queue = tmp_path / "queue.jsonl"
+    ingested = tmp_path / "ingested.jsonl"
+    m4a = recordings / "20260208_0915-retro.m4a"
+    m4a.write_text("m4a")
+    ingested.write_text(
+        json.dumps(
+            {
+                "wav_path": str((recordings / "20260208_0915-retro.wav").resolve()),
+                "family_key": str((recordings / "20260208_0915-retro").resolve()),
+                "meeting_id": "m-existing1234",
+                "ingested_at": "2026-02-08T15:00:00+00:00",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("RECORDINGS_PATH", str(recordings))
+    monkeypatch.setenv("VAULT_PATH", str(vault))
+    monkeypatch.setenv("DEFAULT_MEETINGS_FOLDER", "meetings")
+    monkeypatch.setenv("MEETINGCTL_PROCESS_QUEUE_FILE", str(queue))
+    monkeypatch.setenv("MEETINGCTL_INGESTED_FILES_FILE", str(ingested))
+
+    monkeypatch.setattr("sys.argv", ["meetingctl", "backfill", "--extensions", "m4a", "--json"])
+    assert cli.main() == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["discovered_files"] == 1
+    assert payload["queued_jobs"] == 0
+    assert payload["skipped_already_ingested"] == 1
+    assert payload["failed_jobs"] == 0
+    assert not queue.exists()
+
+
 def test_backfill_cli_match_calendar_dry_run_plans_without_side_effects(
     monkeypatch, tmp_path: Path, capsys
 ) -> None:

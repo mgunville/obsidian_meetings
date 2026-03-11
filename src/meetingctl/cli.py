@@ -347,6 +347,20 @@ def _audio_done_marker_path(audio_path: Path) -> Path:
     return audio_path.with_name(f"{audio_path.name}.done.json")
 
 
+def _recording_family_done_markers(path: Path) -> list[Path]:
+    markers: list[Path] = []
+    seen: set[Path] = set()
+    for ext in (".wav", ".m4a"):
+        candidate_audio = path.with_suffix(ext)
+        marker = _audio_done_marker_path(candidate_audio)
+        resolved = marker.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        markers.append(resolved)
+    return markers
+
+
 def _mark_audio_done(*, audio_path: Path, meeting_id: str, note_path: Path) -> Path | None:
     if _audio_done_mode() == "none":
         return None
@@ -1027,6 +1041,9 @@ def _backfill_recordings(
     queued_jobs = 0
     processed_jobs = 0
     failed_jobs = 0
+    ingested_log = _ingested_files_log_file()
+    seen_paths, seen_families = _load_ingested_recordings(ingested_log)
+    skipped_already_ingested = 0
     skipped_existing = 0
     matched_calendar = 0
     unmatched_calendar = 0
@@ -1118,6 +1135,22 @@ def _backfill_recordings(
         try:
             if verbose:
                 _emit(f"backfill processing: {recording}")
+            recording_key = str(recording.resolve())
+            recording_family = _recording_family_key(recording)
+            if (
+                recording_key in seen_paths
+                or recording_family in seen_families
+                or any(marker.exists() for marker in _recording_family_done_markers(recording))
+            ):
+                skipped_already_ingested += 1
+                if verbose:
+                    _emit(f"backfill skip already ingested: {recording}")
+                if progress:
+                    _emit(
+                        f"backfill progress: {index}/{total} "
+                        f"(processed={processed_jobs} failed={failed_jobs} skipped={skipped_existing + skipped_already_ingested + skipped_manual})"
+                    )
+                continue
             inferred_start, inferred_source = infer_datetime_from_recording_path(recording)
             matched_event: dict[str, object] | None = None
             manual_title: str | None = None
@@ -1148,7 +1181,7 @@ def _backfill_recordings(
                     if progress:
                         _emit(
                             f"backfill progress: {index}/{total} "
-                            f"(processed={processed_jobs} failed={failed_jobs} skipped={skipped_existing + skipped_manual})"
+                            f"(processed={processed_jobs} failed={failed_jobs} skipped={skipped_existing + skipped_already_ingested + skipped_manual})"
                         )
                     continue
 
@@ -1204,7 +1237,7 @@ def _backfill_recordings(
                 if progress:
                     _emit(
                         f"backfill progress: {index}/{total} "
-                        f"(processed={processed_jobs} failed={failed_jobs} skipped={skipped_existing})"
+                        f"(processed={processed_jobs} failed={failed_jobs} skipped={skipped_existing + skipped_already_ingested + skipped_manual})"
                     )
                 continue
             resolved_recording = recording
@@ -1245,7 +1278,7 @@ def _backfill_recordings(
             if progress:
                 _emit(
                     f"backfill progress: {index}/{total} "
-                    f"(processed={processed_jobs} failed={failed_jobs} skipped={skipped_existing})"
+                    f"(processed={processed_jobs} failed={failed_jobs} skipped={skipped_existing + skipped_already_ingested + skipped_manual})"
                 )
         except Exception as exc:
             failed_jobs += 1
@@ -1255,7 +1288,7 @@ def _backfill_recordings(
             if progress:
                 _emit(
                     f"backfill progress: {index}/{total} "
-                    f"(processed={processed_jobs} failed={failed_jobs} skipped={skipped_existing})"
+                    f"(processed={processed_jobs} failed={failed_jobs} skipped={skipped_existing + skipped_already_ingested + skipped_manual})"
                 )
 
     exported_unmatched_manifest = ""
@@ -1270,6 +1303,7 @@ def _backfill_recordings(
         "queued_jobs": queued_jobs,
         "processed_jobs": processed_jobs,
         "failed_jobs": failed_jobs,
+        "skipped_already_ingested": skipped_already_ingested,
         "skipped_existing": skipped_existing,
         "process_now": process_now,
         "match_calendar": match_calendar,

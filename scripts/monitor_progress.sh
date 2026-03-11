@@ -90,6 +90,10 @@ parse_etime_to_seconds() {
     b="$a"
     a=0
   fi
+  days=$((10#$days))
+  a=$((10#$a))
+  b=$((10#$b))
+  c=$((10#$c))
   echo $((days * 86400 + a * 3600 + b * 60 + c))
 }
 
