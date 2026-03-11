@@ -19,6 +19,11 @@ This wrapper:
 - optionally pulls latest git changes when the repo is clean
 - recreates `.venv` from scratch
 - ensures the selected env profile file exists with sane defaults
+- seeds diarized-first transcription defaults in that env profile:
+  - `MEETINGCTL_TRANSCRIPTION_BACKEND=sidecar`
+  - `MEETINGCTL_TRANSCRIPTION_FALLBACK_TO_WHISPER=1`
+  - `MEETINGCTL_DIARIZATION_KEEP_BASELINE=1`
+  - `MEETINGCTL_DIARIZATION_REQUIRE_SPEAKER_LABELS=1`
 - runs `doctor`
 - runs `backfill --match-calendar --process-now` over `RECORDINGS_PATH`
 - optional: `--with-diarization`

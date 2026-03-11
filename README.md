@@ -42,6 +42,12 @@ Install separately:
   - `git clone https://github.com/mgunville/obsidian_meetings.git ~/Dev/obsidian_meetings && cd ~/Dev/obsidian_meetings && bash scripts/setup_upgrade_and_backfill.sh`
 - Optional diarization catch-up after the regular backfill:
   - `git clone https://github.com/mgunville/obsidian_meetings.git ~/Dev/obsidian_meetings && cd ~/Dev/obsidian_meetings && bash scripts/setup_upgrade_and_backfill.sh --with-diarization`
+- The setup script seeds new env profiles with diarized-first defaults:
+  - `MEETINGCTL_TRANSCRIPTION_BACKEND=sidecar`
+  - `MEETINGCTL_TRANSCRIPTION_FALLBACK_TO_WHISPER=1`
+  - `MEETINGCTL_DIARIZATION_KEEP_BASELINE=1`
+  - `MEETINGCTL_DIARIZATION_REQUIRE_SPEAKER_LABELS=1`
+- For a fresh machine to actually use those defaults, Docker Desktop must be running and the Hugging Face token path/ref must be configured.
 
 ## Secret Management (Recommended)
 - Keep secrets out of repo/cloud-synced workspace paths.

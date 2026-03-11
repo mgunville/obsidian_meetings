@@ -7,7 +7,7 @@ meetingctl_load_hf_token_from_file() {
 
   local key raw_path token_path token
   for key in MEETINGCTL_HF_TOKEN_FILE HUGGINGFACE_TOKEN_FILE HF_TOKEN_FILE PYANNOTE_AUTH_TOKEN_FILE; do
-    raw_path="${!key:-}"
+    raw_path="$(eval "printf '%s' \"\${$key-}\"")"
     [[ -z "$raw_path" ]] && continue
     if [[ "$raw_path" == "~/"* ]]; then
       raw_path="$HOME/${raw_path#"~/"}"

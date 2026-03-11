@@ -11,6 +11,8 @@ import shutil
 import subprocess
 from typing import Any
 
+from meetingctl.note.service import create_backfill_note_for_recording
+
 ROOT = Path(__file__).resolve().parents[1]
 _AUDIO_TIMESTAMP_PATTERNS = (
     re.compile(r"(?P<stamp>\d{8}-\d{4})"),
@@ -204,6 +206,21 @@ def _copy_if_exists(source: Path, target: Path) -> bool:
     return True
 
 
+def _ensure_note_for_audio(*, vault_path: Path, audio_path: Path, meeting_id: str) -> tuple[str, str]:
+    if meeting_id:
+        return meeting_id, ""
+    previous_vault = os.environ.get("VAULT_PATH")
+    os.environ["VAULT_PATH"] = str(vault_path)
+    try:
+        note_info = create_backfill_note_for_recording(recording_path=audio_path)
+    finally:
+        if previous_vault is None:
+            os.environ.pop("VAULT_PATH", None)
+        else:
+            os.environ["VAULT_PATH"] = previous_vault
+    return str(note_info["meeting_id"]), str(note_info["note_path"])
+
+
 def _resolve_files(recordings_root: Path, extensions: list[str], file_list: str) -> list[Path]:
     if file_list.strip():
         manifest_path = Path(file_list).expanduser().resolve()
@@ -296,6 +313,13 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             results.append(item)
             continue
 
+        note_path = ""
+        meeting_id, note_path = _ensure_note_for_audio(
+            vault_path=vault_path,
+            audio_path=audio_path,
+            meeting_id=meeting_id,
+        )
+
         cmd = ["bash", str((ROOT / "scripts" / "diarize_sidecar.sh").resolve()), str(audio_path)]
         if meeting_id:
             cmd.extend(["--meeting-id", meeting_id])
@@ -326,6 +350,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         item: dict[str, Any] = {
             "audio_path": str(audio_path),
             "meeting_id": meeting_id,
+            "note_path": note_path,
             "audio_duration_seconds": duration_seconds,
             "transcript_json_used": str(transcript_json) if transcript_json is not None else "",
             "command": cmd,
