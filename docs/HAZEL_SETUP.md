@@ -94,6 +94,7 @@ bash "$REPO_ROOT/scripts/secure_exec.sh" \
 
 1Password focus behavior:
 - Background runs now do not open the 1Password app or steal focus when auth is missing.
+- Interactive runs also do not auto-open 1Password by default. If you explicitly want that behavior for a one-off terminal command, set `MEETINGCTL_OP_OPEN_APP_ON_AUTH_FAILURE=1`.
 - If Hazel needs secrets without interruption, prefer one of:
   - `MEETINGCTL_OP_CACHE_TTL_SECONDS` so `secure_exec.sh` can reuse cached resolved env values
   - `MEETINGCTL_HF_TOKEN_FILE=~/.config/meetingctl/hf_token` for diarization

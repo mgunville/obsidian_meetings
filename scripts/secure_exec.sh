@@ -55,14 +55,7 @@ ensure_op_signed_in() {
     is_interactive=1
   fi
 
-  local open_app="${MEETINGCTL_OP_OPEN_APP_ON_AUTH_FAILURE:-}"
-  if [[ -z "$open_app" ]]; then
-    if [[ "$is_interactive" -eq 1 ]]; then
-      open_app=1
-    else
-      open_app=0
-    fi
-  fi
+  local open_app="${MEETINGCTL_OP_OPEN_APP_ON_AUTH_FAILURE:-0}"
 
   local wait_seconds="${MEETINGCTL_OP_AUTH_WAIT_SECONDS:-}"
   if [[ -z "$wait_seconds" ]]; then
@@ -82,7 +75,11 @@ ensure_op_signed_in() {
 
   echo "secure_exec: 1Password CLI is not signed in." >&2
   if [[ "$is_interactive" -eq 1 ]]; then
-    echo "secure_exec: unlock/sign in to the 1Password app. Waiting up to ${wait_seconds}s for authentication..." >&2
+    if [[ "$open_app" != "0" ]]; then
+      echo "secure_exec: unlock/sign in to the 1Password app. Waiting up to ${wait_seconds}s for authentication..." >&2
+    else
+      echo "secure_exec: automatic app opening is disabled to avoid focus stealing. Sign in manually or run 'op signin' in this terminal, then retry." >&2
+    fi
   else
     echo "secure_exec: background run will not open 1Password or steal focus. Use cached env values, direct env vars, or local token files for headless runs." >&2
   fi

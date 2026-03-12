@@ -50,7 +50,9 @@ Runtime behavior:
   - `MEETINGCTL_OP_CACHE_DIR=~/.local/state/meetingctl/op-cache` controls cache location
   - `0` or unset disables caching
 - Focus-stealing guard:
-  - interactive `secure_exec.sh` runs may open 1Password and wait for auth
+- `secure_exec.sh` does not auto-open 1Password by default, even for interactive runs, to avoid focus stealing
+- if you explicitly want the old behavior for a one-off terminal run, set `MEETINGCTL_OP_OPEN_APP_ON_AUTH_FAILURE=1`
+- preferred flow is to sign in manually with `op signin` or refresh the cache with `bash scripts/refresh_op_cache.sh`
   - non-interactive/background runs do not open 1Password or take focus; they fail fast unless cached env values or local token files are available
 - Manual cache refresh helper:
   - `MEETINGCTL_ENV_PROFILE=secure bash scripts/refresh_op_cache.sh`
