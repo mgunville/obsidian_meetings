@@ -198,6 +198,44 @@ def _resolve_existing_transcript_json(vault_path: Path, meeting_id: str) -> Path
     return None
 
 
+def _resolve_existing_diarized_artifacts(vault_path: Path, meeting_id: str) -> tuple[Path, Path, Path] | None:
+    if not meeting_id:
+        return None
+    artifact_dir = _artifact_dir_for_meeting(vault_path, meeting_id)
+    txt = artifact_dir / f"{meeting_id}.diarized.txt"
+    srt = artifact_dir / f"{meeting_id}.diarized.srt"
+    json_path = artifact_dir / f"{meeting_id}.diarized.json"
+    if txt.exists() and srt.exists() and json_path.exists():
+        return txt.resolve(), srt.resolve(), json_path.resolve()
+    return None
+
+
+def _promote_diarized_to_active(*, vault_path: Path, meeting_id: str) -> bool:
+    existing = _resolve_existing_diarized_artifacts(vault_path, meeting_id)
+    if existing is None:
+        return False
+    diarized_txt, diarized_srt, diarized_json = existing
+    artifact_dir = _artifact_dir_for_meeting(vault_path, meeting_id)
+    canonical_txt = artifact_dir / f"{meeting_id}.txt"
+    canonical_srt = artifact_dir / f"{meeting_id}.srt"
+    canonical_json = artifact_dir / f"{meeting_id}.json"
+    basic_txt = artifact_dir / f"{meeting_id}.basic.txt"
+    basic_srt = artifact_dir / f"{meeting_id}.basic.srt"
+    basic_json = artifact_dir / f"{meeting_id}.basic.json"
+
+    if canonical_txt.exists() and not basic_txt.exists():
+        _copy_if_exists(canonical_txt, basic_txt)
+    if canonical_srt.exists() and not basic_srt.exists():
+        _copy_if_exists(canonical_srt, basic_srt)
+    if canonical_json.exists() and not basic_json.exists():
+        _copy_if_exists(canonical_json, basic_json)
+
+    _copy_if_exists(diarized_txt, canonical_txt)
+    _copy_if_exists(diarized_srt, canonical_srt)
+    _copy_if_exists(diarized_json, canonical_json)
+    return True
+
+
 def _copy_if_exists(source: Path, target: Path) -> bool:
     if not source.exists():
         return False
@@ -361,6 +399,18 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "error": "",
         }
 
+        existing_diarized = _resolve_existing_diarized_artifacts(vault_path, meeting_id)
+        if existing_diarized is not None:
+            item["ok"] = True
+            item["skipped"] = True
+            item["error"] = "existing diarized artifacts present"
+            if args.replace_active and meeting_id and _promote_diarized_to_active(vault_path=vault_path, meeting_id=meeting_id):
+                item["replaced_active"] = True
+                replaced += 1
+            skipped += 1
+            results.append(item)
+            continue
+
         if args.dry_run:
             item["ok"] = True
             results.append(item)
@@ -395,24 +445,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 item["copied_to_artifacts"] = True
                 copied += 1
 
-            if args.replace_active and copied_txt:
-                canonical_txt = artifact_dir / f"{meeting_id}.txt"
-                canonical_srt = artifact_dir / f"{meeting_id}.srt"
-                canonical_json = artifact_dir / f"{meeting_id}.json"
-                basic_txt = artifact_dir / f"{meeting_id}.basic.txt"
-                basic_srt = artifact_dir / f"{meeting_id}.basic.srt"
-                basic_json = artifact_dir / f"{meeting_id}.basic.json"
-
-                if canonical_txt.exists() and not basic_txt.exists():
-                    _copy_if_exists(canonical_txt, basic_txt)
-                if canonical_srt.exists() and not basic_srt.exists():
-                    _copy_if_exists(canonical_srt, basic_srt)
-                if canonical_json.exists() and not basic_json.exists():
-                    _copy_if_exists(canonical_json, basic_json)
-
-                _copy_if_exists(artifact_dir / f"{meeting_id}.diarized.txt", canonical_txt)
-                _copy_if_exists(artifact_dir / f"{meeting_id}.diarized.srt", canonical_srt)
-                _copy_if_exists(artifact_dir / f"{meeting_id}.diarized.json", canonical_json)
+            if args.replace_active and copied_txt and _promote_diarized_to_active(vault_path=vault_path, meeting_id=meeting_id):
                 item["replaced_active"] = True
                 replaced += 1
 

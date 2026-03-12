@@ -278,3 +278,76 @@ def test_run_creates_adhoc_note_for_unmapped_recording_and_copies_artifacts(
     assert (artifact_dir / f"{result['meeting_id']}.diarized.txt").read_text(encoding="utf-8") == "hello"
     assert (artifact_dir / f"{result['meeting_id']}.diarized.srt").exists()
     assert (artifact_dir / f"{result['meeting_id']}.diarized.json").exists()
+
+
+def test_run_skips_when_complete_diarized_artifacts_already_exist(monkeypatch, tmp_path: Path) -> None:
+    recordings = tmp_path / "audio"
+    recordings.mkdir()
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    audio = recordings / "20260309-1000_Audio.m4a"
+    audio.write_text("m4a")
+
+    meeting_id = "m-existingdiarized"
+    note = vault / "Meetings" / f"2026-03-09 1000 - Demo - {meeting_id}.md"
+    note.parent.mkdir(parents=True, exist_ok=True)
+    note.write_text(
+        "\n".join(
+            [
+                "---",
+                f'meeting_id: "{meeting_id}"',
+                "---",
+                f"- audio: {audio}",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    artifact_dir = vault / "Meetings" / "_artifacts" / meeting_id
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    (artifact_dir / f"{meeting_id}.diarized.txt").write_text("diarized txt", encoding="utf-8")
+    (artifact_dir / f"{meeting_id}.diarized.srt").write_text("1\n", encoding="utf-8")
+    (artifact_dir / f"{meeting_id}.diarized.json").write_text('{"segments":[]}', encoding="utf-8")
+    (artifact_dir / f"{meeting_id}.txt").write_text("baseline txt", encoding="utf-8")
+    (artifact_dir / f"{meeting_id}.srt").write_text("baseline srt", encoding="utf-8")
+    (artifact_dir / f"{meeting_id}.json").write_text('{"segments":[{"text":"baseline"}]}', encoding="utf-8")
+
+    monkeypatch.setattr(diarization_catchup, "_audio_duration_seconds", lambda _path: 600.0)
+
+    calls: list[list[str]] = []
+
+    def _runner(args, check=False, capture_output=True, text=True):
+        calls.append(list(args))
+        return subprocess.CompletedProcess(args=args, returncode=0, stdout="{}", stderr="")
+
+    monkeypatch.setattr(diarization_catchup.subprocess, "run", _runner)
+
+    args = diarization_catchup.build_parser().parse_args(
+        [
+            "--recordings-root",
+            str(recordings),
+            "--vault-path",
+            str(vault),
+            "--extensions",
+            "m4a",
+            "--max-files",
+            "1",
+            "--replace-active",
+            "--json",
+        ]
+    )
+
+    payload = diarization_catchup.run(args)
+
+    assert payload["processed"] == 1
+    assert payload["failed"] == 0
+    assert payload["skipped"] == 1
+    assert payload["replaced_active"] == 1
+    assert calls == []
+    result = payload["results"][0]
+    assert result["ok"] is True
+    assert result["skipped"] is True
+    assert result["replaced_active"] is True
+    assert result["error"] == "existing diarized artifacts present"
+    assert (artifact_dir / f"{meeting_id}.txt").read_text(encoding="utf-8") == "diarized txt"
