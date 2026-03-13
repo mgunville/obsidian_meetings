@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 from datetime import UTC, datetime
 import json
 import os
@@ -19,6 +20,42 @@ _AUDIO_TIMESTAMP_PATTERNS = (
     re.compile(r"Recording\s+(?P<stamp>\d{14})"),
 )
 _NOTE_TIME_FALLBACK_TOLERANCE_SECONDS = 30 * 60
+_SYSTEMIC_ERROR_RULES = (
+    {
+        "code": "onepassword_auth_timeout",
+        "patterns": (
+            "secure_exec: timed out waiting for 1Password auth",
+            "secure_exec: 1Password CLI is not signed in",
+        ),
+        "summary": "1Password authentication is blocking Hugging Face token resolution for diarization.",
+        "action": (
+            "Run `op whoami`/`op signin`, or configure `MEETINGCTL_HF_TOKEN_FILE` "
+            "with a local token so the batch can run headless."
+        ),
+        "stop_run": True,
+        "systemic": True,
+    },
+    {
+        "code": "docker_unavailable",
+        "patterns": ("docker is required", "Cannot connect to the Docker daemon"),
+        "summary": "Docker is unavailable, so the diarization sidecar cannot run.",
+        "action": "Start Docker Desktop and rerun the catchup batch.",
+        "stop_run": True,
+        "systemic": True,
+    },
+    {
+        "code": "lightning_checkpoint_upgrade_required",
+        "patterns": ("Lightning automatically upgraded your loaded checkpoint",),
+        "summary": "The diarization container has a Lightning/WhisperX checkpoint compatibility issue.",
+        "action": (
+            "Rebuild or repin the diarization image to compatible Lightning/WhisperX versions. "
+            "As a workaround, rerun with `--require-existing-transcript-json` so only transcript-json-first "
+            "files are processed."
+        ),
+        "stop_run": False,
+        "systemic": False,
+    },
+)
 
 
 def _now_stamp() -> str:
@@ -179,6 +216,87 @@ def _resolve_sidecar_output_path(raw_path: str) -> Path:
     return candidate.resolve()
 
 
+def _match_known_error_snippet(text: str) -> str:
+    if not text.strip():
+        return ""
+    for rule in _SYSTEMIC_ERROR_RULES:
+        for pattern in rule["patterns"]:
+            match = re.search(re.escape(pattern), text, re.IGNORECASE)
+            if match:
+                return match.group(0)
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    return lines[-1] if lines else ""
+
+
+def _classify_issue(*, error_text: str, skipped: bool) -> dict[str, Any]:
+    if skipped and "shorter than minimum duration" in error_text:
+        return {
+            "code": "short_recording",
+            "summary": "Recording is shorter than the configured minimum duration.",
+            "action": "No fix required unless you want to lower `--min-duration-seconds`.",
+            "stop_run": False,
+            "systemic": False,
+        }
+    if skipped and error_text == "existing diarized artifacts present":
+        return {
+            "code": "already_diarized",
+            "summary": "Diarized artifacts already exist for this meeting.",
+            "action": "No fix required.",
+            "stop_run": False,
+            "systemic": False,
+        }
+    if skipped and error_text == "missing existing transcript JSON":
+        return {
+            "code": "missing_transcript_json",
+            "summary": "File has no baseline transcript JSON for transcript-json-first diarization.",
+            "action": (
+                "Generate baseline transcript JSON first, or rerun without "
+                "`--require-existing-transcript-json`."
+            ),
+            "stop_run": False,
+            "systemic": False,
+        }
+    for rule in _SYSTEMIC_ERROR_RULES:
+        for pattern in rule["patterns"]:
+            if pattern.lower() in error_text.lower():
+                return dict(rule)
+    return {
+        "code": "sidecar_failure",
+        "summary": "Sidecar diarization failed for one or more files.",
+        "action": "Inspect `results[*].command` and rerun an individual failing command for detail.",
+        "stop_run": False,
+        "systemic": False,
+    }
+
+
+def _build_issue_summary(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    counts: Counter[str] = Counter()
+    first_seen: dict[str, dict[str, Any]] = {}
+    for item in results:
+        code = str(item.get("issue_code", "")).strip()
+        if not code:
+            continue
+        counts[code] += 1
+        if code not in first_seen:
+            first_seen[code] = item
+
+    summary: list[dict[str, Any]] = []
+    for code, count in counts.most_common():
+        item = first_seen[code]
+        summary.append(
+            {
+                "code": code,
+                "count": count,
+                "systemic": bool(item.get("issue_systemic", False)),
+                "stop_run": bool(item.get("issue_stop_run", False)),
+                "summary": str(item.get("issue_summary", "")),
+                "action": str(item.get("issue_action", "")),
+                "sample_error": str(item.get("error", "")),
+            }
+        )
+    return summary
+
+
 def _artifact_dir_for_meeting(vault_path: Path, meeting_id: str) -> Path:
     root = os.environ.get("MEETINGCTL_ARTIFACTS_ROOT", "Meetings/_artifacts").strip() or "Meetings/_artifacts"
     return (vault_path / root / meeting_id).resolve()
@@ -327,6 +445,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     skipped = 0
     copied = 0
     replaced = 0
+    stopped_early = False
+    stop_reason = ""
+    stop_action = ""
 
     for audio_path in files:
         meeting_id = _find_meeting_id_from_done_marker(audio_path)
@@ -347,6 +468,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 "replaced_active": False,
                 "error": f"recording shorter than minimum duration ({duration_seconds:.3f}s < {args.min_duration_seconds}s)",
             }
+            issue = _classify_issue(error_text=str(item["error"]), skipped=True)
+            item["issue_code"] = issue["code"]
+            item["issue_summary"] = issue["summary"]
+            item["issue_action"] = issue["action"]
+            item["issue_stop_run"] = issue["stop_run"]
+            item["issue_systemic"] = issue["systemic"]
             skipped += 1
             results.append(item)
             continue
@@ -377,6 +504,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 "replaced_active": False,
                 "error": "missing existing transcript JSON",
             }
+            issue = _classify_issue(error_text=str(item["error"]), skipped=True)
+            item["issue_code"] = issue["code"]
+            item["issue_summary"] = issue["summary"]
+            item["issue_action"] = issue["action"]
+            item["issue_stop_run"] = issue["stop_run"]
+            item["issue_systemic"] = issue["systemic"]
             skipped += 1
             results.append(item)
             continue
@@ -404,6 +537,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             item["ok"] = True
             item["skipped"] = True
             item["error"] = "existing diarized artifacts present"
+            issue = _classify_issue(error_text=str(item["error"]), skipped=True)
+            item["issue_code"] = issue["code"]
+            item["issue_summary"] = issue["summary"]
+            item["issue_action"] = issue["action"]
+            item["issue_stop_run"] = issue["stop_run"]
+            item["issue_systemic"] = issue["systemic"]
             if args.replace_active and meeting_id and _promote_diarized_to_active(vault_path=vault_path, meeting_id=meeting_id):
                 item["replaced_active"] = True
                 replaced += 1
@@ -424,8 +563,19 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 
         if completed.returncode != 0 or manifest is None:
             failed += 1
-            item["error"] = merged_output.splitlines()[-1] if merged_output else "sidecar run failed"
+            item["error"] = _match_known_error_snippet(merged_output) or "sidecar run failed"
+            issue = _classify_issue(error_text=merged_output or str(item["error"]), skipped=False)
+            item["issue_code"] = issue["code"]
+            item["issue_summary"] = issue["summary"]
+            item["issue_action"] = issue["action"]
+            item["issue_stop_run"] = issue["stop_run"]
+            item["issue_systemic"] = issue["systemic"]
             results.append(item)
+            if args.stop_on_systemic_error and issue["stop_run"]:
+                stopped_early = True
+                stop_reason = issue["summary"]
+                stop_action = issue["action"]
+                break
             continue
 
         item["ok"] = True
@@ -454,6 +604,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     manifests_dir = (ROOT / "shared_data" / "diarization" / "manifests").resolve()
     manifests_dir.mkdir(parents=True, exist_ok=True)
     report_path = manifests_dir / f"catchup_{_now_stamp()}.json"
+    issue_summary = _build_issue_summary(results)
     payload = {
         "recordings_root": str(recordings_root),
         "vault_path": str(vault_path),
@@ -468,8 +619,14 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "prefer_existing_transcript_json": args.prefer_existing_transcript_json,
         "require_existing_transcript_json": args.require_existing_transcript_json,
         "require_pyannote": args.require_pyannote,
+        "stop_on_systemic_error": args.stop_on_systemic_error,
+        "stopped_early": stopped_early,
+        "remaining_files": max(len(files) - len(results), 0),
+        "stop_reason": stop_reason,
+        "stop_action": stop_action,
         "dry_run": args.dry_run,
         "report_path": str(report_path),
+        "issue_summary": issue_summary,
         "results": results,
     }
     report_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -492,6 +649,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--require-existing-transcript-json", action="store_true")
     parser.add_argument("--require-pyannote", action="store_true")
     parser.add_argument("--allow-transcript-without-diarization", action="store_true")
+    parser.add_argument("--stop-on-systemic-error", action="store_true", default=True)
+    parser.add_argument("--no-stop-on-systemic-error", action="store_false", dest="stop_on_systemic_error")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--json", action="store_true")
     return parser

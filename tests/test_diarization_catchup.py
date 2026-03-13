@@ -351,3 +351,133 @@ def test_run_skips_when_complete_diarized_artifacts_already_exist(monkeypatch, t
     assert result["replaced_active"] is True
     assert result["error"] == "existing diarized artifacts present"
     assert (artifact_dir / f"{meeting_id}.txt").read_text(encoding="utf-8") == "diarized txt"
+
+
+def test_run_stops_early_on_systemic_auth_error(monkeypatch, tmp_path: Path) -> None:
+    recordings = tmp_path / "audio"
+    recordings.mkdir()
+    vault = tmp_path / "vault"
+    vault.mkdir()
+
+    first = recordings / "20260309-1000_Audio.m4a"
+    second = recordings / "20260309-1100_Audio.m4a"
+    first.write_text("m4a")
+    second.write_text("m4a")
+
+    monkeypatch.setattr(diarization_catchup, "_audio_duration_seconds", lambda _path: 600.0)
+
+    calls: list[list[str]] = []
+
+    def _runner(args, check=False, capture_output=True, text=True):
+        calls.append(list(args))
+        return subprocess.CompletedProcess(
+            args=args,
+            returncode=1,
+            stdout="",
+            stderr="secure_exec: timed out waiting for 1Password auth. Verify with: op whoami",
+        )
+
+    monkeypatch.setattr(diarization_catchup.subprocess, "run", _runner)
+
+    args = diarization_catchup.build_parser().parse_args(
+        [
+            "--recordings-root",
+            str(recordings),
+            "--vault-path",
+            str(vault),
+            "--extensions",
+            "m4a",
+            "--json",
+        ]
+    )
+
+    payload = diarization_catchup.run(args)
+
+    assert payload["processed"] == 1
+    assert payload["failed"] == 1
+    assert payload["stopped_early"] is True
+    assert payload["remaining_files"] == 1
+    assert "1Password authentication" in payload["stop_reason"]
+    assert calls and len(calls) == 1
+    issue_summary = payload["issue_summary"]
+    assert issue_summary[0]["code"] == "onepassword_auth_timeout"
+    assert issue_summary[0]["count"] == 1
+
+
+def test_run_reports_checkpoint_issue_without_stopping(monkeypatch, tmp_path: Path) -> None:
+    recordings = tmp_path / "audio"
+    recordings.mkdir()
+    vault = tmp_path / "vault"
+    vault.mkdir()
+
+    first = recordings / "20260309-1000_Audio.m4a"
+    second = recordings / "20260309-1100_Audio.m4a"
+    first.write_text("m4a")
+    second.write_text("m4a")
+
+    monkeypatch.setattr(diarization_catchup, "_audio_duration_seconds", lambda _path: 600.0)
+
+    unique_dir = (
+        Path(__file__).resolve().parents[1]
+        / "shared_data"
+        / "diarization"
+        / "jobs"
+        / f"test-catchup-summary-{uuid.uuid4().hex[:8]}"
+    )
+    unique_dir.mkdir(parents=True, exist_ok=True)
+    (unique_dir / "transcript_diarized.txt").write_text("hello", encoding="utf-8")
+    (unique_dir / "transcript_diarized.srt").write_text(
+        "1\n00:00:00,000 --> 00:00:01,000\nhello\n", encoding="utf-8"
+    )
+    (unique_dir / "transcript_diarized.json").write_text(
+        '{"segments":[{"speaker":"SPEAKER_00","text":"hello"}]}', encoding="utf-8"
+    )
+
+    manifest = {
+        "transcript_txt": f"/shared/diarization/jobs/{unique_dir.name}/transcript_diarized.txt",
+        "transcript_srt": f"/shared/diarization/jobs/{unique_dir.name}/transcript_diarized.srt",
+        "transcript_json": f"/shared/diarization/jobs/{unique_dir.name}/transcript_diarized.json",
+    }
+
+    responses = [
+        subprocess.CompletedProcess(
+            args=["bash"],
+            returncode=1,
+            stdout="",
+            stderr=(
+                "Lightning automatically upgraded your loaded checkpoint from v1.5.4 to v2.6.1. "
+                "To apply the upgrade to your files permanently, run "
+                "`python -m pytorch_lightning.utilities.upgrade_checkpoint ../usr/local/lib/python3.10/site-packages/whisperx/assets/pytorch_model.bin`"
+            ),
+        ),
+        subprocess.CompletedProcess(args=["bash"], returncode=0, stdout=json.dumps(manifest), stderr=""),
+    ]
+
+    def _runner(args, check=False, capture_output=True, text=True):
+        return responses.pop(0)
+
+    monkeypatch.setattr(diarization_catchup.subprocess, "run", _runner)
+
+    args = diarization_catchup.build_parser().parse_args(
+        [
+            "--recordings-root",
+            str(recordings),
+            "--vault-path",
+            str(vault),
+            "--extensions",
+            "m4a",
+            "--json",
+        ]
+    )
+
+    try:
+        payload = diarization_catchup.run(args)
+    finally:
+        shutil.rmtree(unique_dir, ignore_errors=True)
+
+    assert payload["processed"] == 2
+    assert payload["failed"] == 1
+    assert payload["stopped_early"] is False
+    issue_summary = payload["issue_summary"]
+    assert issue_summary[0]["code"] == "lightning_checkpoint_upgrade_required"
+    assert "compatible Lightning/WhisperX versions" in issue_summary[0]["action"]

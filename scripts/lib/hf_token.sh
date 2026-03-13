@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 
 meetingctl_load_hf_token_from_file() {
-  if [[ -n "${PYANNOTE_AUTH_TOKEN:-}" || -n "${HF_TOKEN:-}" || -n "${HUGGINGFACE_TOKEN:-}" ]]; then
-    return 0
-  fi
+  local existing
+  for existing in "${PYANNOTE_AUTH_TOKEN:-}" "${HF_TOKEN:-}" "${HUGGINGFACE_TOKEN:-}"; do
+    [[ -z "$existing" ]] && continue
+    if [[ "$existing" != op://* && "$existing" != "<concealed by 1Password>"* ]]; then
+      return 0
+    fi
+  done
 
   local key raw_path token_path token
   for key in MEETINGCTL_HF_TOKEN_FILE HUGGINGFACE_TOKEN_FILE HF_TOKEN_FILE PYANNOTE_AUTH_TOKEN_FILE; do
