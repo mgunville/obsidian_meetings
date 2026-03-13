@@ -261,6 +261,54 @@ def test_generate_summary_uses_resolved_env_value_without_op_read(
     assert kwargs["api_key"] == "already-resolved-key"
 
 
+@patch("meetingctl.summary_client.anthropic.Anthropic")
+def test_generate_summary_reads_api_key_from_default_file(
+    mock_anthropic_class: MagicMock,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    key_file = tmp_path / ".config" / "meetingctl" / "anthropic_api_key"
+    key_file.parent.mkdir(parents=True, exist_ok=True)
+    key_file.write_text("file-secret\n", encoding="utf-8")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("MEETINGCTL_ANTHROPIC_API_KEY_OP_REF", raising=False)
+
+    mock_client = MagicMock()
+    mock_anthropic_class.return_value = mock_client
+    mock_response = MagicMock()
+    mock_response.content = [SimpleNamespace(text='{"minutes":"ok","decisions":[],"action_items":[]}')]
+    mock_client.messages.create.return_value = mock_response
+
+    generate_summary("Test", api_key="")
+
+    kwargs = mock_anthropic_class.call_args.kwargs
+    assert kwargs["api_key"] == "file-secret"
+
+
+@patch("meetingctl.summary_client.anthropic.Anthropic")
+def test_generate_summary_prefers_explicit_api_key_over_file(
+    mock_anthropic_class: MagicMock,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    key_file = tmp_path / ".config" / "meetingctl" / "anthropic_api_key"
+    key_file.parent.mkdir(parents=True, exist_ok=True)
+    key_file.write_text("file-secret\n", encoding="utf-8")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("MEETINGCTL_ANTHROPIC_API_KEY_OP_REF", raising=False)
+
+    mock_client = MagicMock()
+    mock_anthropic_class.return_value = mock_client
+    mock_response = MagicMock()
+    mock_response.content = [SimpleNamespace(text='{"minutes":"ok","decisions":[],"action_items":[]}')]
+    mock_client.messages.create.return_value = mock_response
+
+    generate_summary("Test", api_key="explicit-secret")
+
+    kwargs = mock_anthropic_class.call_args.kwargs
+    assert kwargs["api_key"] == "explicit-secret"
+
+
 def test_generate_summary_requires_api_key() -> None:
     """Test that generate_summary requires an API key."""
     with pytest.raises((ValueError, RuntimeError)):

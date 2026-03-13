@@ -3,6 +3,8 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT_DIR/scripts/lib/load_dotenv.sh"
+source "$ROOT_DIR/scripts/lib/hf_token.sh"
+source "$ROOT_DIR/scripts/lib/anthropic_token.sh"
 
 if [[ "$#" -lt 1 ]]; then
   echo "Usage: $0 <command> [args...]"
@@ -29,6 +31,10 @@ if [[ -z "$USE_1PASSWORD" && -f "$DOTENV_PATH" ]]; then
 fi
 USE_1PASSWORD="${USE_1PASSWORD:-auto}"
 NEEDS_OP=0
+
+meetingctl_load_env "$ROOT_DIR"
+meetingctl_load_hf_token_from_file
+meetingctl_load_anthropic_key_from_file
 
 resolve_op_binary() {
   if command -v op >/dev/null 2>&1; then
@@ -251,10 +257,45 @@ load_cached_op_env_and_exec() {
   exec "$@"
 }
 
+dotenv_requires_op() {
+  local dotenv_path="$1"
+  local line key raw_value
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ "$line" =~ ^[[:space:]]*$ ]] && continue
+    [[ "$line" =~ ^[[:space:]]*# ]] && continue
+    line="${line#export }"
+    [[ "$line" == *"="* ]] || continue
+    key="${line%%=*}"
+    raw_value="${line#*=}"
+    key="${key#"${key%%[![:space:]]*}"}"
+    key="${key%"${key##*[![:space:]]}"}"
+
+    if [[ "$raw_value" != op://* ]]; then
+      continue
+    fi
+
+    case "$key" in
+      HUGGINGFACE_TOKEN|HF_TOKEN|PYANNOTE_AUTH_TOKEN)
+        if [[ -n "${HUGGINGFACE_TOKEN:-}" || -n "${HF_TOKEN:-}" || -n "${PYANNOTE_AUTH_TOKEN:-}" ]]; then
+          continue
+        fi
+        ;;
+      MEETINGCTL_ANTHROPIC_API_KEY_OP_REF)
+        if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
+          continue
+        fi
+        ;;
+    esac
+
+    return 0
+  done < "$dotenv_path"
+  return 1
+}
+
 if [[ -f "$DOTENV_PATH" ]]; then
   if [[ "$USE_1PASSWORD" == "1" ]]; then
     NEEDS_OP=1
-  elif [[ "$USE_1PASSWORD" == "auto" ]] && grep -Eq '^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=.*op://' "$DOTENV_PATH"; then
+  elif [[ "$USE_1PASSWORD" == "auto" ]] && dotenv_requires_op "$DOTENV_PATH"; then
     NEEDS_OP=1
   fi
 fi
@@ -268,5 +309,4 @@ if [[ "$NEEDS_OP" == "1" ]]; then
   load_cached_op_env_and_exec "$OP_BIN" "$DOTENV_PATH" "$@"
 fi
 
-meetingctl_load_env "$ROOT_DIR"
 exec "$@"

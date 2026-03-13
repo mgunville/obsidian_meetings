@@ -355,14 +355,40 @@ def _read_onepassword_secret(ref: str) -> str:
     return value
 
 
+def _read_api_key_from_file() -> str:
+    candidates = [
+        os.environ.get("MEETINGCTL_ANTHROPIC_API_KEY_FILE", "").strip(),
+        os.environ.get("ANTHROPIC_API_KEY_FILE", "").strip(),
+        "~/.config/meetingctl/anthropic_api_key",
+    ]
+    for candidate in candidates:
+        if not candidate:
+            continue
+        path = os.path.expanduser(candidate)
+        if not os.path.isfile(path):
+            continue
+        try:
+            with open(path, encoding="utf-8") as fh:
+                for line in fh:
+                    value = line.strip()
+                    if value:
+                        return value
+        except OSError:
+            continue
+    return ""
+
+
 def _resolve_api_key(api_key: str) -> str:
     direct = api_key.strip()
     ref_from_env = os.environ.get("MEETINGCTL_ANTHROPIC_API_KEY_OP_REF", "").strip()
+    file_value = _read_api_key_from_file()
 
     if direct.startswith("op://"):
         return _read_onepassword_secret(direct)
     if direct:
         return direct
+    if file_value:
+        return file_value
     if ref_from_env.startswith("op://"):
         return _read_onepassword_secret(ref_from_env)
     if ref_from_env:
